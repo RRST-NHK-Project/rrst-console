@@ -10,5 +10,6 @@ sudo apt-get update -y
 sudo apt-get upgrade -y
 
 # 以下GUI用
+sudo apt install npm -y
 sudo apt install ros-jazzy-rosbridge-server -y
 
