@@ -1248,6 +1248,20 @@
   align-items: start;
 }
 
+.pose-detail-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.pose-detail-title {
+  margin: 0 0 8px 0;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
 .pose-current-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1480,6 +1494,14 @@
     height: auto;
   }
 
+  .wall-angle-graph {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    background-color: rgba(255, 255, 255, 0.95);
+    border-radius: 4px;
+  }
+
   .wall-angle-gauge-ring {
     fill: rgba(255, 255, 255, 0.9);
     stroke: rgba(0, 0, 0, 0.16);
@@ -1502,6 +1524,46 @@
     fill: #cb1c14;
     stroke: #ffffff;
     stroke-width: 2;
+  }
+
+  .wall-detection-point {
+    fill: rgba(100, 150, 255, 0.8);
+    stroke: rgba(0, 100, 200, 0.9);
+    stroke-width: 1;
+  }
+
+  .wall-detection-inlier-point {
+    fill: rgba(255, 100, 100, 0.9);
+    stroke: rgba(200, 20, 20, 1);
+    stroke-width: 1;
+  }
+
+  .wall-ransac-line {
+    stroke: #e63946;
+    stroke-width: 2.5;
+    fill: none;
+  }
+
+  .pose-graph-grid-line {
+    stroke: rgba(200, 200, 200, 0.6);
+    stroke-width: 1;
+  }
+
+  .pose-graph-axis-line {
+    stroke: rgba(0, 0, 0, 0.5);
+    stroke-width: 1.5;
+  }
+
+  .pose-graph-border {
+    stroke: rgba(100, 100, 100, 0.6);
+    stroke-width: 1.5;
+    fill: none;
+  }
+
+  .pose-graph-corner-label {
+    font-size: 11px;
+    fill: rgba(0, 0, 0, 0.6);
+    text-anchor: middle;
   }
 
   .wall-angle-metrics-card {

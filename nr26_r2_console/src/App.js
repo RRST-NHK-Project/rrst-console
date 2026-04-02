@@ -71,6 +71,7 @@ function App() {
   const rosTopicTypeServiceRef = useRef(null);
   const topicEchoSubRef = useRef(null);
   const cameraSubRef = useRef(null);
+  const cubeDebugSubRef = useRef(null);
   const wallAngleSubRef = useRef(null);
   const serialPeriodicTimerRef = useRef(null);
   const serialBridgeLogBoxRef = useRef(null);
@@ -116,6 +117,7 @@ function App() {
     "actuator",
     "topic",
     "camera",
+    "cube-detection",
     "serial-bridge",
     "shutdown",
     "settings",
@@ -172,10 +174,34 @@ function App() {
   const [cameraTopicName, setCameraTopicName] = useState("/camera/camera/depth/image_rect_raw");
   const [cameraStreamRunning, setCameraStreamRunning] = useState(false);
   const [cameraStreamInfo, setCameraStreamInfo] = useState("未開始");
+  const [cubeDebugTopicInput, setCubeDebugTopicInput] = useState("/cube_detection/debug_image");
+  const [cubeDebugTopicName, setCubeDebugTopicName] = useState("/cube_detection/debug_image");
+  const [cubeDebugStreamRunning, setCubeDebugStreamRunning] = useState(false);
+  const [cubeDebugStreamInfo, setCubeDebugStreamInfo] = useState("未開始");
+  const [cubeFrameUrl, setCubeFrameUrl] = useState("");
+  const [cubeFrameMeta, setCubeFrameMeta] = useState({
+    width: 0,
+    height: 0,
+    encoding: "",
+    fps: 0,
+  });
+  const [cubeDetected, setCubeDetected] = useState(false);
+  const [cubeUpdatedAt, setCubeUpdatedAt] = useState("");
+  const [cubeInfo, setCubeInfo] = useState({
+    cxNorm: 0,
+    cyNorm: 0,
+    widthNorm: 0,
+    heightNorm: 0,
+    depthM: 0,
+    score: 0,
+    areaPx: 0,
+  });
   const [wallAngleTopicInput, setWallAngleTopicInput] = useState("/wall_detection/angle");
   const [wallAngleTopicName, setWallAngleTopicName] = useState("/wall_detection/angle");
   const [wallAngleRad, setWallAngleRad] = useState(0);
   const [wallAngleUpdatedAt, setWallAngleUpdatedAt] = useState("");
+  const [wallFilteredPoints, setWallFilteredPoints] = useState([]);
+  const [wallRansacParams, setWallRansacParams] = useState({ a: 0, b: 0, c: 0, inliers: 0, total: 0 });
   const [cameraFrameUrl, setCameraFrameUrl] = useState("");
   const [cameraFrameMeta, setCameraFrameMeta] = useState({
     width: 0,
@@ -261,6 +287,12 @@ function App() {
     console.log("Wall angle topic updated to:", nextTopic);
   };
 
+  const applyCubeDebugTopicName = () => {
+    const nextTopic = cubeDebugTopicInput.trim() || "/cube_detection/debug_image";
+    setCubeDebugTopicName(nextTopic);
+    console.log("Cube debug topic updated to:", nextTopic);
+  };
+
   const MAX_ACTIVE_PAGES = multiTabMode ? 2 : 1;
 
   const isPageActive = (page) => activePages.includes(page);
@@ -301,6 +333,7 @@ function App() {
     if (page === "actuator") return tr("ダイレクト送信", "Actuator TX");
     if (page === "topic") return tr("トピック監視", "Topics");
     if (page === "camera") return tr("カメラ映像", "Camera");
+    if (page === "cube-detection") return tr("立方体検知", "Cube Detection");
     if (page === "serial-bridge") return "Serial Bridge";
     if (page === "shutdown") return tr("強制停止", "Shutdown");
     if (page === "settings") return tr("設定", "Settings");
@@ -486,6 +519,18 @@ function App() {
     setCameraStreamRunning(false);
   };
 
+  const stopCubeDebugStream = () => {
+    if (cubeDebugSubRef.current) {
+      try {
+        cubeDebugSubRef.current.unsubscribe?.();
+      } catch (error) {
+        console.warn("Error unsubscribing cube debug topic:", error);
+      }
+      cubeDebugSubRef.current = null;
+    }
+    setCubeDebugStreamRunning(false);
+  };
+
   const decodeRosUint8Array = (dataField) => {
     if (Array.isArray(dataField)) {
       return Uint8Array.from(dataField.map((v) => Number(v) & 0xff));
@@ -656,6 +701,82 @@ function App() {
     cameraSubRef.current = cameraTopic;
     setCameraStreamRunning(true);
     setCameraStreamInfo(`購読開始: ${topicName}`);
+  };
+
+  const startCubeDebugStream = () => {
+    const topicName = cubeDebugTopicInput.trim();
+    if (!topicName) {
+      setCubeDebugStreamInfo("トピック名を入力してください");
+      return;
+    }
+    if (!rosRef.current) {
+      setCubeDebugStreamInfo("ROS未接続のため開始できません");
+      return;
+    }
+
+    stopCubeDebugStream();
+    setCubeDebugTopicName(topicName);
+
+    const cubeTopic = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: topicName,
+      messageType: "sensor_msgs/msg/Image",
+    });
+
+    let frameCount = 0;
+    let lastFpsAt = performance.now();
+    let fps = 0;
+
+    cubeTopic.subscribe((msg) => {
+      const converted = toImageDataFromRosImage(msg);
+      if (!converted) {
+        setCubeDebugStreamInfo("画像データのデコードに失敗しました");
+        return;
+      }
+
+      if (!converted.imageData) {
+        setCubeFrameMeta((prev) => ({
+          ...prev,
+          width: converted.width,
+          height: converted.height,
+          encoding: converted.encoding,
+        }));
+        setCubeDebugStreamInfo(`未対応エンコーディング: ${converted.encoding || "unknown"}`);
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = converted.width;
+      canvas.height = converted.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setCubeDebugStreamInfo("Canvas初期化に失敗しました");
+        return;
+      }
+
+      ctx.putImageData(converted.imageData, 0, 0);
+      setCubeFrameUrl(canvas.toDataURL("image/png"));
+
+      frameCount += 1;
+      const now = performance.now();
+      if (now - lastFpsAt >= 1000) {
+        fps = Math.round((frameCount * 1000) / (now - lastFpsAt));
+        frameCount = 0;
+        lastFpsAt = now;
+      }
+
+      setCubeFrameMeta({
+        width: converted.width,
+        height: converted.height,
+        encoding: converted.encoding,
+        fps,
+      });
+      setCubeDebugStreamInfo("ストリーミング中");
+    });
+
+    cubeDebugSubRef.current = cubeTopic;
+    setCubeDebugStreamRunning(true);
+    setCubeDebugStreamInfo(`購読開始: ${topicName}`);
   };
 
   const extractSerialBridgeIds = (topics) => {
@@ -1730,6 +1851,101 @@ function App() {
     gridYValues.push(Number(value.toFixed(6)));
   }
 
+  // Wall angle graph calculation (Cartesian coordinate system)
+  const wallGraphWidth = 300;
+  const wallGraphHeight = 300;
+  const wallGraphPadding = 28;
+
+  // Rotate raw points 90 degrees counterclockwise for display: (x, y) -> (-y, x)
+  const wallDisplayPoints = wallFilteredPoints.map((p) => ({ x: -p.y, y: p.x }));
+
+  let wallGraphMinXRaw = 0, wallGraphMaxXRaw = 0;
+  let wallGraphMinYRaw = 0, wallGraphMaxYRaw = 0;
+
+  if (wallDisplayPoints.length > 0) {
+    wallGraphMinXRaw = Math.min(...wallDisplayPoints.map((p) => p.x));
+    wallGraphMaxXRaw = Math.max(...wallDisplayPoints.map((p) => p.x));
+    wallGraphMinYRaw = Math.min(...wallDisplayPoints.map((p) => p.y));
+    wallGraphMaxYRaw = Math.max(...wallDisplayPoints.map((p) => p.y));
+  } else {
+    wallGraphMinXRaw = wallGraphMaxXRaw = 0;
+    wallGraphMinYRaw = wallGraphMaxYRaw = 0;
+  }
+
+  const wallGraphExtentRaw = Math.max(
+    Math.abs(wallGraphMinXRaw),
+    Math.abs(wallGraphMaxXRaw),
+    Math.abs(wallGraphMinYRaw),
+    Math.abs(wallGraphMaxYRaw),
+    1
+  );
+  const wallGraphMargin = Math.max(wallGraphExtentRaw * 0.2, 0.5);
+  const wallGraphExtent = wallGraphExtentRaw + wallGraphMargin;
+
+  const wallGraphMinX = -wallGraphExtent;
+  const wallGraphMaxX = wallGraphExtent;
+  const wallGraphMinY = -wallGraphExtent;
+  const wallGraphMaxY = wallGraphExtent;
+
+  const wallGraphInnerWidth = wallGraphWidth - wallGraphPadding * 2;
+  const wallGraphInnerHeight = wallGraphHeight - wallGraphPadding * 2;
+
+  const toWallGraphX = (x) =>
+    wallGraphPadding + ((x - wallGraphMinX) / Math.max(wallGraphMaxX - wallGraphMinX, 1e-6)) * wallGraphInnerWidth;
+  const toWallGraphY = (y) =>
+    wallGraphHeight - wallGraphPadding - ((y - wallGraphMinY) / Math.max(wallGraphMaxY - wallGraphMinY, 1e-6)) * wallGraphInnerHeight;
+
+  const wallAxisXVisible = wallGraphMinX <= 0 && wallGraphMaxX >= 0;
+  const wallAxisYVisible = wallGraphMinY <= 0 && wallGraphMaxY >= 0;
+  const wallGridStep = chooseGridStep(Math.max(wallGraphMaxX - wallGraphMinX, wallGraphMaxY - wallGraphMinY));
+
+  const wallGridXValues = [];
+  const wallStartGridX = Math.ceil(wallGraphMinX / wallGridStep) * wallGridStep;
+  for (let value = wallStartGridX; value <= wallGraphMaxX + 1e-9; value += wallGridStep) {
+    wallGridXValues.push(Number(value.toFixed(6)));
+  }
+
+  const wallGridYValues = [];
+  const wallStartGridY = Math.ceil(wallGraphMinY / wallGridStep) * wallGridStep;
+  for (let value = wallStartGridY; value <= wallGraphMaxY + 1e-9; value += wallGridStep) {
+    wallGridYValues.push(Number(value.toFixed(6)));
+  }
+
+  // Debug logging
+  if (isPageActive("wall-angle")) {
+    const debugInfo = {
+      wallFilteredPointsCount: wallFilteredPoints.length,
+      wallGridXCount: wallGridXValues.length,
+      wallGridYCount: wallGridYValues.length,
+      wallGraphMinX,
+      wallGraphMaxX,
+      wallGraphMinY,
+      wallGraphMaxY,
+      wallGridStep,
+    };
+    console.log("Wall angle graph debug:", debugInfo);
+  }
+
+  // RANSAC line endpoints calculation in rotated display coordinates
+  let ransacLinePoint1 = null, ransacLinePoint2 = null;
+  if (wallRansacParams) {
+    const lineA = -wallRansacParams.b;
+    const lineB = wallRansacParams.a;
+    const lineC = wallRansacParams.c;
+
+    if (Math.abs(lineB) > 1e-6) {
+      const y1 = -(lineA * wallGraphMinX + lineC) / lineB;
+      const y2 = -(lineA * wallGraphMaxX + lineC) / lineB;
+      ransacLinePoint1 = { x: wallGraphMinX, y: y1 };
+      ransacLinePoint2 = { x: wallGraphMaxX, y: y2 };
+    } else if (Math.abs(lineA) > 1e-6) {
+      const x1 = -(lineB * wallGraphMinY + lineC) / lineA;
+      const x2 = -(lineB * wallGraphMaxY + lineC) / lineA;
+      ransacLinePoint1 = { x: x1, y: wallGraphMinY };
+      ransacLinePoint2 = { x: x2, y: wallGraphMaxY };
+    }
+  }
+
   useEffect(() => {
     tracePoseRef.current = { x: poseX, y: poseY, yaw: poseYaw };
   }, [poseX, poseY, poseYaw]);
@@ -2088,6 +2304,121 @@ function App() {
       setWallAngleUpdatedAt(new Date().toLocaleTimeString());
     });
 
+    // 点群を購読 (PointCloud2)
+    const filteredPointsTopic = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/wall_detection/filtered_points",
+      messageType: "sensor_msgs/msg/PointCloud2",
+    });
+    filteredPointsTopic.subscribe((msg) => {
+      try {
+        const points = [];
+        if (msg?.width > 0 && msg?.data) {
+          // Handle multiple PointCloud2 data encodings from rosbridge
+          let dataArray = null;
+          if (msg.data instanceof Uint8Array) {
+            dataArray = msg.data;
+          } else if (Array.isArray(msg.data)) {
+            dataArray = new Uint8Array(msg.data);
+          } else if (typeof msg.data === "string") {
+            const binary = atob(msg.data);
+            dataArray = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              dataArray[i] = binary.charCodeAt(i);
+            }
+          }
+
+          if (!dataArray || dataArray.byteLength === 0) {
+            setWallFilteredPoints([]);
+            return;
+          }
+
+          const dataView = new DataView(dataArray.buffer, dataArray.byteOffset, dataArray.byteLength);
+
+          // Find field offsets
+          const xField = msg.fields?.find(f => f.name === "x");
+          const yField = msg.fields?.find(f => f.name === "y");
+          const xOffset = xField?.offset || 0;
+          const yOffset = yField?.offset || 4;
+          const pointStep = Number(msg.point_step) || 8;
+          const pointCount = Math.min(Number(msg.width) || 0, Math.floor(dataArray.byteLength / pointStep));
+          const littleEndian = !msg.is_bigendian;
+
+          for (let i = 0; i < pointCount; i++) {
+            const byteOffset = i * pointStep;
+            try {
+              const x = dataView.getFloat32(byteOffset + xOffset, littleEndian);
+              const y = dataView.getFloat32(byteOffset + yOffset, littleEndian);
+              if (Number.isFinite(x) && Number.isFinite(y)) {
+                points.push({ x, y });
+              }
+            } catch (e) {
+              // Skip invalid points
+            }
+          }
+        }
+        setWallFilteredPoints(points);
+      } catch (e) {
+        console.error("Error parsing filtered points:", e);
+      }
+    });
+
+    // RANSACパラメータを購読 (Float64MultiArray)
+    const ransacParamsTopic = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/wall_detection/ransac_params",
+      messageType: "std_msgs/msg/Float64MultiArray",
+    });
+    ransacParamsTopic.subscribe((msg) => {
+      try {
+        if (msg?.data && msg.data.length >= 5) {
+          setWallRansacParams({
+            a: msg.data[0],
+            b: msg.data[1],
+            c: msg.data[2],
+            inliers: Math.round(msg.data[3]),
+            total: Math.round(msg.data[4]),
+          });
+        }
+      } catch (e) {
+        console.error("Error parsing RANSAC params:", e);
+      }
+    });
+
+    const cubeDetectedTopic = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/cube_detection/detected",
+      messageType: "std_msgs/msg/Bool",
+    });
+    cubeDetectedTopic.subscribe((msg) => {
+      setCubeDetected(Boolean(msg?.data));
+      setCubeUpdatedAt(new Date().toLocaleTimeString());
+    });
+
+    const cubeInfoTopic = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/cube_detection/info",
+      messageType: "std_msgs/msg/Float32MultiArray",
+    });
+    cubeInfoTopic.subscribe((msg) => {
+      const data = Array.isArray(msg?.data) ? msg.data : [];
+      if (data.length < 8) {
+        return;
+      }
+
+      setCubeDetected(Boolean(data[0]));
+      setCubeInfo({
+        cxNorm: Number(data[1]) || 0,
+        cyNorm: Number(data[2]) || 0,
+        widthNorm: Number(data[3]) || 0,
+        heightNorm: Number(data[4]) || 0,
+        depthM: Number(data[5]) || 0,
+        score: Number(data[6]) || 0,
+        areaPx: Math.round(Number(data[7]) || 0),
+      });
+      setCubeUpdatedAt(new Date().toLocaleTimeString());
+    });
+
     odomResetCmdRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "odom_reset",
@@ -2156,6 +2487,27 @@ function App() {
           console.warn("Error unsubscribing wall angle topic:", error);
         }
       }
+      try {
+        filteredPointsTopic.unsubscribe?.();
+      } catch (error) {
+        console.warn("Error unsubscribing filtered points topic:", error);
+      }
+      try {
+        ransacParamsTopic.unsubscribe?.();
+      } catch (error) {
+        console.warn("Error unsubscribing ransac params topic:", error);
+      }
+      try {
+        cubeDetectedTopic.unsubscribe?.();
+      } catch (error) {
+        console.warn("Error unsubscribing cube detected topic:", error);
+      }
+      try {
+        cubeInfoTopic.unsubscribe?.();
+      } catch (error) {
+        console.warn("Error unsubscribing cube info topic:", error);
+      }
+      stopCubeDebugStream();
       stopCameraStream();
       stopTopicEcho();
       if (rosRef.current) rosRef.current.close();
@@ -2850,51 +3202,129 @@ function App() {
 
               <p className="connection-hint">{tr("現在の購読トピック:", "Current topic:")} {wallAngleTopicName}</p>
 
-              <div className="wall-angle-layout">
-                <section className="pose-graph-card wall-angle-card">
+              <div className="pose-overview-grid">
+                <section className="pose-graph-card">
+                  <div className="pose-graph-title-row">
+                    <h3 className="pose-graph-title">{tr("壁検知グラフ", "Wall Detection Graph")}</h3>
+                    <span className="pose-graph-scale">{tr("単位: m", "Unit: m")}</span>
+                  </div>
                   <svg
-                    className="wall-angle-gauge"
-                    viewBox={`0 0 ${wallGaugeSize} ${wallGaugeSize}`}
+                    className="wall-angle-graph"
+                    viewBox={`0 0 ${wallGraphWidth} ${wallGraphHeight}`}
                     role="img"
-                    aria-label={tr("壁角度ゲージ", "Wall angle gauge")}
+                    aria-label={tr("壁検知グラフ", "Wall detection graph")}
+                    style={{ backgroundColor: "#ffffff" }}
                   >
-                    <circle
-                      cx={wallGaugeCx}
-                      cy={wallGaugeCy}
-                      r={wallGaugeRadius}
-                      className="wall-angle-gauge-ring"
+                    {/* Background */}
+                    <rect
+                      x="0"
+                      y="0"
+                      width={wallGraphWidth}
+                      height={wallGraphHeight}
+                      fill="white"
+                      stroke="none"
                     />
-                    <line
-                      x1={wallGaugeCx - wallGaugeRadius}
-                      y1={wallGaugeCy}
-                      x2={wallGaugeCx + wallGaugeRadius}
-                      y2={wallGaugeCy}
-                      className="wall-angle-gauge-axis"
+
+                    {/* Grid lines */}
+                    {wallGridXValues.map((xVal) => (
+                      <line
+                        key={`wall-grid-x-${xVal}`}
+                        x1={toWallGraphX(xVal)}
+                        y1={wallGraphPadding}
+                        x2={toWallGraphX(xVal)}
+                        y2={wallGraphHeight - wallGraphPadding}
+                        stroke="#d0d0d0"
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                      />
+                    ))}
+                    {wallGridYValues.map((yVal) => (
+                      <line
+                        key={`wall-grid-y-${yVal}`}
+                        x1={wallGraphPadding}
+                        y1={toWallGraphY(yVal)}
+                        x2={wallGraphWidth - wallGraphPadding}
+                        y2={toWallGraphY(yVal)}
+                        stroke="#d0d0d0"
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                      />
+                    ))}
+
+                    {/* Axis lines */}
+                    {wallAxisXVisible && (
+                      <line
+                        x1={wallGraphPadding}
+                        y1={toWallGraphY(0)}
+                        x2={wallGraphWidth - wallGraphPadding}
+                        y2={toWallGraphY(0)}
+                        stroke="#333333"
+                        strokeWidth="1.5"
+                      />
+                    )}
+                    {wallAxisYVisible && (
+                      <line
+                        x1={toWallGraphX(0)}
+                        y1={wallGraphPadding}
+                        x2={toWallGraphX(0)}
+                        y2={wallGraphHeight - wallGraphPadding}
+                        stroke="#333333"
+                        strokeWidth="1.5"
+                      />
+                    )}
+
+                    {/* RANSAC line */}
+                    {ransacLinePoint1 && ransacLinePoint2 && (
+                      <line
+                        x1={toWallGraphX(ransacLinePoint1.x)}
+                        y1={toWallGraphY(ransacLinePoint1.y)}
+                        x2={toWallGraphX(ransacLinePoint2.x)}
+                        y2={toWallGraphY(ransacLinePoint2.y)}
+                        stroke="#e63946"
+                        strokeWidth="2.5"
+                      />
+                    )}
+
+                    {/* Filtered points */}
+                    {wallFilteredPoints.map((point, idx) => {
+                      const rotatedPoint = { x: -point.y, y: point.x };
+                      const isInlier =
+                        wallRansacParams && wallRansacParams.a !== 0 && wallRansacParams.b !== 0 &&
+                        Math.abs(
+                          wallRansacParams.a * point.x +
+                          wallRansacParams.b * point.y +
+                          wallRansacParams.c
+                        ) < 0.1;
+
+                      return (
+                        <circle
+                          key={`wall-point-${idx}`}
+                          cx={toWallGraphX(rotatedPoint.x)}
+                          cy={toWallGraphY(rotatedPoint.y)}
+                          r="3"
+                          fill={isInlier ? "rgba(255, 100, 100, 0.9)" : "rgba(100, 150, 255, 0.8)"}
+                          stroke={isInlier ? "#c81414" : "#0064c8"}
+                          strokeWidth="1"
+                        />
+                      );
+                    })}
+
+                    {/* Graph border */}
+                    <rect
+                      x={wallGraphPadding}
+                      y={wallGraphPadding}
+                      width={wallGraphInnerWidth}
+                      height={wallGraphInnerHeight}
+                      stroke="#666666"
+                      strokeWidth="1.5"
+                      fill="none"
                     />
-                    <line
-                      x1={wallGaugeCx}
-                      y1={wallGaugeCy - wallGaugeRadius}
-                      x2={wallGaugeCx}
-                      y2={wallGaugeCy + wallGaugeRadius}
-                      className="wall-angle-gauge-axis"
-                    />
-                    <line
-                      x1={wallGaugeCx}
-                      y1={wallGaugeCy}
-                      x2={wallGaugeNeedleX}
-                      y2={wallGaugeNeedleY}
-                      className="wall-angle-gauge-needle"
-                    />
-                    <circle cx={wallGaugeCx} cy={wallGaugeCy} r="5" className="wall-angle-gauge-center" />
-                    <text x={wallGaugeCx + wallGaugeRadius + 8} y={wallGaugeCy + 4} className="pose-graph-corner-label">0°</text>
-                    <text x={wallGaugeCx - 8} y={wallGaugeCy - wallGaugeRadius - 8} className="pose-graph-corner-label">90°</text>
-                    <text x={wallGaugeCx - wallGaugeRadius - 26} y={wallGaugeCy + 4} className="pose-graph-corner-label">180°</text>
-                    <text x={wallGaugeCx - 12} y={wallGaugeCy + wallGaugeRadius + 18} className="pose-graph-corner-label">-90°</text>
                   </svg>
                 </section>
 
-                <section className="waypoint-list-card wall-angle-metrics-card">
-                  <div className="pose-current-grid wall-angle-metrics">
+                <section className="pose-detail-panel">
+                  <h3 className="pose-detail-title">{tr("壁検知情報", "Wall Detection Info")}</h3>
+                  <div className="pose-current-grid">
                     <div className="pose-current-item">
                       <span>{tr("角度 [rad]", "Angle [rad]")}</span>
                       <strong>{wallAngleRad.toFixed(4)}</strong>
@@ -2904,17 +3334,30 @@ function App() {
                       <strong>{wallAngleDeg.toFixed(2)}</strong>
                     </div>
                     <div className="pose-current-item">
+                      <span>{tr("検出点数", "Detected Points")}</span>
+                      <strong>{wallFilteredPoints.length}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("インライア数", "Inliers")}</span>
+                      <strong>{wallRansacParams?.inliers || 0} / {wallRansacParams?.total || 0}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("直線係数 a", "Line Param a")}</span>
+                      <strong>{wallRansacParams?.a?.toFixed(4) || "0.0000"}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("直線係数 b", "Line Param b")}</span>
+                      <strong>{wallRansacParams?.b?.toFixed(4) || "0.0000"}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("直線係数 c", "Line Param c")}</span>
+                      <strong>{wallRansacParams?.c?.toFixed(4) || "0.0000"}</strong>
+                    </div>
+                    <div className="pose-current-item">
                       <span>{tr("更新時刻", "Updated")}</span>
                       <strong>{wallAngleUpdatedAt || "-"}</strong>
                     </div>
                   </div>
-
-                  <p className="connection-hint">
-                    {tr(
-                      "表示は反時計回りを正として、0°を右向きにしています。",
-                      "Display uses counterclockwise positive, with 0 deg pointing right."
-                    )}
-                  </p>
                 </section>
               </div>
             </section>
@@ -3672,6 +4115,110 @@ function App() {
                 ) : (
                   <p className="connection-hint">{tr("映像未受信です。開始を押してください。", "No frame received yet. Press Start.")}</p>
                 )}
+              </div>
+            </section>
+          )}
+
+          {isPageActive("cube-detection") && (
+            <section className="topic-panel">
+              <h2 className="serial-packet-title">{tr("立方体検知モニタ", "Cube Detection Monitor")}</h2>
+              <p className="serial-packet-hint">
+                {tr(
+                  "深度画像の中央近傍から立方体候補を検出し、検出状態とデバッグ画像を表示します。",
+                  "Detects a cube candidate near image center from depth image and displays status with debug frames."
+                )}
+              </p>
+
+              <div className="topic-select-row">
+                <input
+                  className="connection-input"
+                  value={cubeDebugTopicInput}
+                  onChange={(e) => setCubeDebugTopicInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyCubeDebugTopicName();
+                  }}
+                  placeholder="/cube_detection/debug_image"
+                />
+                <button className="connection-button btn-connect" onClick={applyCubeDebugTopicName}>
+                  {tr("更新", "Apply")}
+                </button>
+                <button className="connection-button btn-send" onClick={startCubeDebugStream}>
+                  {tr("開始", "Start")}
+                </button>
+                <button className="serial-clear-button" onClick={stopCubeDebugStream}>
+                  {tr("停止", "Stop")}
+                </button>
+              </div>
+
+              <p className="connection-hint">
+                {translateRuntimeText(cubeDebugStreamInfo)}
+                {cubeDebugStreamRunning ? ` | topic: ${cubeDebugTopicName}` : ""}
+              </p>
+
+              <div className="pose-overview-grid">
+                <section className="pose-graph-card" style={{ marginTop: 0 }}>
+                  <div className="pose-graph-title-row">
+                    <h3 className="pose-graph-title">{tr("デバッグ画像", "Debug Image")}</h3>
+                    <span className="pose-graph-scale">{cubeDetected ? tr("検出中", "Detected") : tr("未検出", "Not Detected")}</span>
+                  </div>
+
+                  {cubeFrameUrl ? (
+                    <>
+                      <img
+                        src={cubeFrameUrl}
+                        alt="cube detection debug"
+                        style={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 10 }}
+                      />
+                      <p className="connection-hint" style={{ marginTop: 8 }}>
+                        {cubeFrameMeta.width} x {cubeFrameMeta.height} | {cubeFrameMeta.encoding || "unknown"} | {cubeFrameMeta.fps} fps
+                      </p>
+                    </>
+                  ) : (
+                    <p className="connection-hint">{tr("デバッグ画像未受信です。開始を押してください。", "No debug frame received yet. Press Start.")}</p>
+                  )}
+                </section>
+
+                <section className="pose-detail-panel">
+                  <h3 className="pose-detail-title">{tr("検出ステータス", "Detection Status")}</h3>
+                  <div className="pose-current-grid">
+                    <div className="pose-current-item">
+                      <span>{tr("検出", "Detected")}</span>
+                      <strong>{cubeDetected ? tr("YES", "YES") : tr("NO", "NO")}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("中心X [norm]", "Center X [norm]")}</span>
+                      <strong>{cubeInfo.cxNorm.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("中心Y [norm]", "Center Y [norm]")}</span>
+                      <strong>{cubeInfo.cyNorm.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("幅 [norm]", "Width [norm]")}</span>
+                      <strong>{cubeInfo.widthNorm.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("高さ [norm]", "Height [norm]")}</span>
+                      <strong>{cubeInfo.heightNorm.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("深度 [m]", "Depth [m]")}</span>
+                      <strong>{cubeInfo.depthM.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("信頼度", "Score")}</span>
+                      <strong>{cubeInfo.score.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("面積 [px]", "Area [px]")}</span>
+                      <strong>{cubeInfo.areaPx}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("更新時刻", "Updated")}</span>
+                      <strong>{cubeUpdatedAt || "-"}</strong>
+                    </div>
+                  </div>
+                </section>
               </div>
             </section>
           )}
