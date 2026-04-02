@@ -71,6 +71,7 @@ function App() {
   const rosTopicTypeServiceRef = useRef(null);
   const topicEchoSubRef = useRef(null);
   const cameraSubRef = useRef(null);
+  const wallAngleSubRef = useRef(null);
   const serialPeriodicTimerRef = useRef(null);
   const serialBridgeLogBoxRef = useRef(null);
   const poseGraphRef = useRef(null);
@@ -108,6 +109,7 @@ function App() {
     "controller",
     "sequence",
     "pose",
+    "wall-angle",
     "waypoint",
     "teaching",
     "simulator",
@@ -170,6 +172,10 @@ function App() {
   const [cameraTopicName, setCameraTopicName] = useState("/camera/camera/depth/image_rect_raw");
   const [cameraStreamRunning, setCameraStreamRunning] = useState(false);
   const [cameraStreamInfo, setCameraStreamInfo] = useState("未開始");
+  const [wallAngleTopicInput, setWallAngleTopicInput] = useState("/wall_detection/angle");
+  const [wallAngleTopicName, setWallAngleTopicName] = useState("/wall_detection/angle");
+  const [wallAngleRad, setWallAngleRad] = useState(0);
+  const [wallAngleUpdatedAt, setWallAngleUpdatedAt] = useState("");
   const [cameraFrameUrl, setCameraFrameUrl] = useState("");
   const [cameraFrameMeta, setCameraFrameMeta] = useState({
     width: 0,
@@ -249,6 +255,12 @@ function App() {
     console.log("Virtual odometry topic updated to:", nextTopic);
   };
 
+  const applyWallAngleTopicName = () => {
+    const nextTopic = wallAngleTopicInput.trim() || "/wall_detection/angle";
+    setWallAngleTopicName(nextTopic);
+    console.log("Wall angle topic updated to:", nextTopic);
+  };
+
   const MAX_ACTIVE_PAGES = multiTabMode ? 2 : 1;
 
   const isPageActive = (page) => activePages.includes(page);
@@ -282,6 +294,7 @@ function App() {
     if (page === "controller") return tr("コントローラ操作", "Controller");
     if (page === "sequence") return tr("シーケンス操作", "Sequence");
     if (page === "pose") return tr("座標・姿勢管理", "Pose");
+    if (page === "wall-angle") return tr("壁角度", "Wall Angle");
     if (page === "waypoint") return tr("ウェイポイント", "Waypoints");
     if (page === "teaching") return tr("ティーチング", "Teaching");
     if (page === "simulator") return tr("仮想オドメトリ", "Virtual Odom");
@@ -1653,6 +1666,14 @@ function App() {
   const currentArrowY = currentY - Math.sin(currentYaw) * arrowLength;
   const targetArrowX = targetX + Math.cos(targetYaw) * arrowLength;
   const targetArrowY = targetY - Math.sin(targetYaw) * arrowLength;
+  const wallAngleDeg = normalizeAngleDeg((wallAngleRad * 180) / Math.PI);
+  const wallGaugeSize = 240;
+  const wallGaugeCx = wallGaugeSize / 2;
+  const wallGaugeCy = wallGaugeSize / 2;
+  const wallGaugeRadius = 84;
+  const wallGaugeNeedleLen = 74;
+  const wallGaugeNeedleX = wallGaugeCx + Math.cos(wallAngleRad) * wallGaugeNeedleLen;
+  const wallGaugeNeedleY = wallGaugeCy - Math.sin(wallAngleRad) * wallGaugeNeedleLen;
 
   // Trace points graph calculation
   const traceGraphPoints = [
@@ -2053,6 +2074,20 @@ function App() {
       messageType: "std_msgs/msg/Float32MultiArray",
     });
 
+    wallAngleSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: wallAngleTopicName,
+      messageType: "std_msgs/msg/Float64",
+    });
+    wallAngleSubRef.current.subscribe((msg) => {
+      const nextAngle = Number(msg?.data);
+      if (!Number.isFinite(nextAngle)) {
+        return;
+      }
+      setWallAngleRad(nextAngle);
+      setWallAngleUpdatedAt(new Date().toLocaleTimeString());
+    });
+
     odomResetCmdRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "odom_reset",
@@ -2114,11 +2149,18 @@ function App() {
           console.warn("Error unsubscribing drive mode topic:", error);
         }
       }
+      if (wallAngleSubRef.current) {
+        try {
+          wallAngleSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing wall angle topic:", error);
+        }
+      }
       stopCameraStream();
       stopTopicEcho();
       if (rosRef.current) rosRef.current.close();
     };
-  }, [rosUrl, joyTopicName, virtualOdomTopicName]);
+  }, [rosUrl, joyTopicName, virtualOdomTopicName, wallAngleTopicName]);
 
   useEffect(() => {
     if (!virtualOdomEnabled || !virtualOdomPubRef.current) {
@@ -2778,6 +2820,103 @@ function App() {
                   </div>
                 </div>
               )}
+            </section>
+          )}
+
+          {isPageActive("wall-angle") && (
+            <section className="pose-panel">
+              <h2 className="serial-packet-title">{tr("壁角度の図示", "Wall Angle Visualization")}</h2>
+              <p className="serial-packet-hint">
+                {tr(
+                  "wall_detection の角度トピックを購読して、現在の壁角度をゲージ表示します。",
+                  "Subscribes to wall_detection angle topic and displays current wall angle as a gauge."
+                )}
+              </p>
+
+              <section className="joy-topic-row">
+                <input
+                  className="connection-input"
+                  value={wallAngleTopicInput}
+                  onChange={(e) => setWallAngleTopicInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyWallAngleTopicName();
+                  }}
+                  placeholder="/wall_detection/angle"
+                />
+                <button className="connection-button btn-connect" onClick={applyWallAngleTopicName}>
+                  {tr("更新", "Apply")}
+                </button>
+              </section>
+
+              <p className="connection-hint">{tr("現在の購読トピック:", "Current topic:")} {wallAngleTopicName}</p>
+
+              <div className="wall-angle-layout">
+                <section className="pose-graph-card wall-angle-card">
+                  <svg
+                    className="wall-angle-gauge"
+                    viewBox={`0 0 ${wallGaugeSize} ${wallGaugeSize}`}
+                    role="img"
+                    aria-label={tr("壁角度ゲージ", "Wall angle gauge")}
+                  >
+                    <circle
+                      cx={wallGaugeCx}
+                      cy={wallGaugeCy}
+                      r={wallGaugeRadius}
+                      className="wall-angle-gauge-ring"
+                    />
+                    <line
+                      x1={wallGaugeCx - wallGaugeRadius}
+                      y1={wallGaugeCy}
+                      x2={wallGaugeCx + wallGaugeRadius}
+                      y2={wallGaugeCy}
+                      className="wall-angle-gauge-axis"
+                    />
+                    <line
+                      x1={wallGaugeCx}
+                      y1={wallGaugeCy - wallGaugeRadius}
+                      x2={wallGaugeCx}
+                      y2={wallGaugeCy + wallGaugeRadius}
+                      className="wall-angle-gauge-axis"
+                    />
+                    <line
+                      x1={wallGaugeCx}
+                      y1={wallGaugeCy}
+                      x2={wallGaugeNeedleX}
+                      y2={wallGaugeNeedleY}
+                      className="wall-angle-gauge-needle"
+                    />
+                    <circle cx={wallGaugeCx} cy={wallGaugeCy} r="5" className="wall-angle-gauge-center" />
+                    <text x={wallGaugeCx + wallGaugeRadius + 8} y={wallGaugeCy + 4} className="pose-graph-corner-label">0°</text>
+                    <text x={wallGaugeCx - 8} y={wallGaugeCy - wallGaugeRadius - 8} className="pose-graph-corner-label">90°</text>
+                    <text x={wallGaugeCx - wallGaugeRadius - 26} y={wallGaugeCy + 4} className="pose-graph-corner-label">180°</text>
+                    <text x={wallGaugeCx - 12} y={wallGaugeCy + wallGaugeRadius + 18} className="pose-graph-corner-label">-90°</text>
+                  </svg>
+                </section>
+
+                <section className="waypoint-list-card wall-angle-metrics-card">
+                  <div className="pose-current-grid wall-angle-metrics">
+                    <div className="pose-current-item">
+                      <span>{tr("角度 [rad]", "Angle [rad]")}</span>
+                      <strong>{wallAngleRad.toFixed(4)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("角度 [deg]", "Angle [deg]")}</span>
+                      <strong>{wallAngleDeg.toFixed(2)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("更新時刻", "Updated")}</span>
+                      <strong>{wallAngleUpdatedAt || "-"}</strong>
+                    </div>
+                  </div>
+
+                  <p className="connection-hint">
+                    {tr(
+                      "表示は反時計回りを正として、0°を右向きにしています。",
+                      "Display uses counterclockwise positive, with 0 deg pointing right."
+                    )}
+                  </p>
+                </section>
+              </div>
             </section>
           )}
 

@@ -914,6 +914,7 @@
   }
 
   .pose-current-grid,
+  .wall-angle-layout,
   .pose-overview-grid,
   .waypoint-overview-grid,
   .pose-input-grid,
@@ -1460,6 +1461,57 @@
 }
 
 .pose-target-save-panel {
+  .wall-angle-layout {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: minmax(280px, 420px) minmax(220px, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+
+  .wall-angle-card {
+    display: grid;
+    place-items: center;
+  }
+
+  .wall-angle-gauge {
+    width: 100%;
+    max-width: 280px;
+    height: auto;
+  }
+
+  .wall-angle-gauge-ring {
+    fill: rgba(255, 255, 255, 0.9);
+    stroke: rgba(0, 0, 0, 0.16);
+    stroke-width: 2;
+  }
+
+  .wall-angle-gauge-axis {
+    stroke: rgba(0, 0, 0, 0.22);
+    stroke-width: 1.6;
+    stroke-dasharray: 4 4;
+  }
+
+  .wall-angle-gauge-needle {
+    stroke: #cb1c14;
+    stroke-width: 4;
+    stroke-linecap: round;
+  }
+
+  .wall-angle-gauge-center {
+    fill: #cb1c14;
+    stroke: #ffffff;
+    stroke-width: 2;
+  }
+
+  .wall-angle-metrics-card {
+    margin-top: 10px;
+  }
+
+  .wall-angle-metrics {
+    margin-top: 0;
+  }
+
   margin-top: 12px;
   padding: 10px;
   border: 1px solid var(--line);
