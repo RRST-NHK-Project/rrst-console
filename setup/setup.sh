@@ -5,8 +5,6 @@
 # sudo chmod +x setup.sh
 # ./setup.sh
 
-
-
 # いつもの
 sudo apt-get update -y
 sudo apt-get upgrade -y
