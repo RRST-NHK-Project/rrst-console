@@ -403,6 +403,91 @@
   padding-right: 2px;
 }
 
+.magazine-state-layout {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.magazine-state-ring {
+  position: relative;
+  width: min(100%, 560px);
+  height: 560px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.96) 0 28%, rgba(255, 255, 255, 0.82) 28% 40%, rgba(240, 245, 250, 0.58) 40% 100%),
+    linear-gradient(135deg, rgba(240, 244, 248, 0.85), rgba(255, 255, 255, 0.95));
+  border: 1px solid rgba(129, 150, 168, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 16px 30px rgba(25, 35, 50, 0.08);
+  overflow: hidden;
+}
+
+.magazine-state-ring::before {
+  content: "";
+  position: absolute;
+  inset: 44px;
+  border: 1px dashed rgba(129, 150, 168, 0.38);
+  border-radius: 50%;
+}
+
+.magazine-state-ring::after {
+  content: "";
+  position: absolute;
+  inset: 110px;
+  border: 1px solid rgba(129, 150, 168, 0.22);
+  border-radius: 50%;
+}
+
+.magazine-state-button {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  min-width: 108px;
+  min-height: 70px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  white-space: normal;
+  box-shadow: 0 6px 14px rgba(17, 24, 39, 0.12);
+}
+
+.magazine-state-center {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(129, 150, 168, 0.28);
+  box-shadow: 0 10px 28px rgba(25, 35, 50, 0.12);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 16px;
+}
+
+.magazine-state-center-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  color: var(--text-sub);
+}
+
+.magazine-state-center-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.magazine-state-center-values {
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  line-height: 1.4;
+}
+
 .serial-item {
   display: grid;
   grid-template-columns: 1fr;
@@ -1972,6 +2057,24 @@
 
   .serial-packet-grid {
     grid-template-columns: 1fr;
+  }
+
+  .magazine-state-ring {
+    width: min(100%, 360px);
+    height: 360px;
+  }
+
+  .magazine-state-button {
+    min-width: 82px;
+    min-height: 58px;
+    padding: 6px 8px;
+    font-size: 0.82rem;
+  }
+
+  .magazine-state-center {
+    width: 130px;
+    height: 130px;
+    padding: 10px;
   }
 
   .serial-item {

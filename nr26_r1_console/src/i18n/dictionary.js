@@ -7,7 +7,7 @@ const uiTextByJaDe = {
     "フロントエンド強制停止": "Frontend erzwungen gestoppt",
     "フロントエンドを強制停止しました。復帰するには再読み込みしてください。": "Frontend wurde erzwungen gestoppt. Zum Fortsetzen neu laden.",
     "再読み込み": "Neu laden",
-    "R2 テレオペレーションパネル": "ROS2 Teleoperationspanel",
+    "R1 テレオペレーションパネル": "ROS2 Teleoperation Panel",
     "接続更新": "Anwenden",
     "ROS IP (例: 192.168.1.10)": "ROS-Host (z.B. 192.168.1.10)",
     "操作ロック: OFF": "Sicherheitsverriegelung: AUS",
@@ -252,6 +252,6 @@ export const runtimeTextByJa = {
     "ROS未接続のためオドメトリリセット送信できません": { en: "Cannot send odometry reset while ROS is disconnected", de: "Odometry-Reset bei getrennter ROS-Verbindung nicht moeglich" },
     "odom_reset にリセット要求を送信しました": { en: "Sent reset request to odom_reset", de: "Reset-Anfrage an odom_reset gesendet" },
     "すべての保存目標値をクリアしました": { en: "Cleared all saved targets", de: "Alle gespeicherten Ziele geloescht" },
-    "r2_autodrive_cmd に目標座標を送信しました": { en: "Sent target pose to r2_autodrive_cmd", de: "Ziel-Pose an r2_autodrive_cmd gesendet" },
+    "目標座標を送信しました": { en: "Sent target pose", de: "Ziel-Pose gesendet" },
     "操作許可がOFFのため定期送信を停止しました": { en: "Periodic sending stopped because safety lock is ON", de: "Periodisches Senden gestoppt, da Sicherheitsverriegelung EIN" }
 };
