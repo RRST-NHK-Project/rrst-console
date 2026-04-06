@@ -164,8 +164,8 @@ function App() {
   const [topicEchoInfo, setTopicEchoInfo] = useState("未開始");
   const [topicEchoMessages, setTopicEchoMessages] = useState([]);
   const [topicEchoRunning, setTopicEchoRunning] = useState(false);
-  const [cameraTopicInput, setCameraTopicInput] = useState("/camera/camera/depth/image_rect_raw");
-  const [cameraTopicName, setCameraTopicName] = useState("/camera/camera/depth/image_rect_raw");
+  const [cameraTopicInput, setCameraTopicInput] = useState("/camera/image_raw");
+  const [cameraTopicName, setCameraTopicName] = useState("/camera/image_raw");
   const [cameraStreamRunning, setCameraStreamRunning] = useState(false);
   const [cameraStreamInfo, setCameraStreamInfo] = useState("未開始");
   const [cameraFrameUrl, setCameraFrameUrl] = useState("");
@@ -354,6 +354,12 @@ function App() {
     setCameraStreamRunning(false);
   };
 
+  const applyCameraTopicPreset = (topicName) => {
+    setCameraTopicInput(topicName);
+    setCameraTopicName(topicName);
+    setCameraStreamInfo(`トピック設定: ${topicName}`);
+  };
+
   const decodeRosUint8Array = (dataField) => {
     if (Array.isArray(dataField)) {
       return Uint8Array.from(dataField.map((v) => Number(v) & 0xff));
@@ -466,7 +472,7 @@ function App() {
     const cameraTopic = new ROSLIB.Topic({
       ros: rosRef.current,
       name: topicName,
-      messageType: "sensor_msgs/msg/Image",
+      messageType: "sensor_msgs/Image",
     });
 
     let frameCount = 0;
@@ -2698,13 +2704,34 @@ function App() {
                   className="connection-input"
                   value={cameraTopicInput}
                   onChange={(e) => setCameraTopicInput(e.target.value)}
-                  placeholder="/camera/camera/depth/image_rect_raw"
+                  placeholder="/camera/image_raw"
                 />
                 <button className="connection-button btn-send" onClick={startCameraStream}>
                   {tr("開始", "Start")}
                 </button>
                 <button className="serial-clear-button" onClick={stopCameraStream}>
                   {tr("停止", "Stop")}
+                </button>
+              </div>
+
+              <div className="topic-select-row camera-preset-row">
+                <button
+                  className="connection-button btn-connect"
+                  onClick={() => applyCameraTopicPreset("/camera/image_raw")}
+                >
+                  {tr("Webcam", "Webcam")}
+                </button>
+                <button
+                  className="connection-button btn-connect"
+                  onClick={() => applyCameraTopicPreset("/camera/camera/color/image_raw")}
+                >
+                  {tr("RealSense Color", "RealSense Color")}
+                </button>
+                <button
+                  className="connection-button btn-connect"
+                  onClick={() => applyCameraTopicPreset("/camera/camera/depth/image_rect_raw")}
+                >
+                  {tr("RealSense Depth", "RealSense Depth")}
                 </button>
               </div>
 

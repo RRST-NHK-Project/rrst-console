@@ -656,6 +656,10 @@
   gap: 8px;
 }
 
+.camera-preset-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .topic-list-box {
   margin-top: 10px;
   max-height: 220px;
