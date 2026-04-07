@@ -1356,6 +1356,18 @@
   stroke-width: 2;
 }
 
+.pose-graph-point-aruco {
+  fill: #ef6c00;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.pose-graph-point-aruco-target {
+  fill: #00838f;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
 .pose-graph-label {
   fill: var(--text-main);
   font-size: 11px;
@@ -1401,6 +1413,14 @@
 
 .pose-legend-target {
   background: #1565c0;
+}
+
+.pose-legend-aruco {
+  background: #ef6c00;
+}
+
+.pose-legend-aruco-target {
+  background: #00838f;
 }
 
 .pose-current-item {

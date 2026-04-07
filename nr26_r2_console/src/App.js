@@ -75,6 +75,8 @@ function App() {
   const cameraSubRef = useRef(null);
   const cubeDebugSubRef = useRef(null);
   const wallAngleSubRef = useRef(null);
+  const arucoPoseSubRef = useRef(null);
+  const arucoIdSubRef = useRef(null);
   const serialPeriodicTimerRef = useRef(null);
   const serialBridgeLogBoxRef = useRef(null);
   const poseGraphRef = useRef(null);
@@ -144,13 +146,15 @@ function App() {
   const [targetXStep, setTargetXStep] = useState("0.1");
   const [targetYStep, setTargetYStep] = useState("0.1");
   const [targetYawStep, setTargetYawStep] = useState("5");
-  const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.45");
+  const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
   const [arucoTargetIdInput, setArucoTargetIdInput] = useState("-1");
   const [arucoCameraOffsetXInput, setArucoCameraOffsetXInput] = useState("-0.1735");
   const [arucoCameraOffsetYInput, setArucoCameraOffsetYInput] = useState("0.0");
   const [arucoCmdInfo, setArucoCmdInfo] = useState("未送信");
+  const [arucoDetectedId, setArucoDetectedId] = useState(null);
+  const [arucoDetectedWorldPose, setArucoDetectedWorldPose] = useState(null);
   const [savedPose, setSavedPose] = useState(null);
   const [savedPosesList, setSavedPosesList] = useState([]);
   const [waypoints, setWaypoints] = useState([]);
@@ -232,6 +236,10 @@ function App() {
   const [virtualOdomEnabled, setVirtualOdomEnabled] = useState(false);
   const [virtualOdomHzInput, setVirtualOdomHzInput] = useState("10");
   const virtualOdomEnabledRef = useRef(false);
+  const arucoTargetIdValueRef = useRef(-1);
+  const arucoCameraOffsetXRef = useRef(-0.1735);
+  const arucoCameraOffsetYRef = useRef(0.0);
+  const arucoDetectedIdRef = useRef(null);
 
   const backendBaseUrl = `${window.location.protocol}//${window.location.hostname}:3031`;
 
@@ -1589,15 +1597,12 @@ function App() {
     }
 
     const forward = parseFloatSafe(arucoTargetForwardInput);
-    const lateral = parseFloatSafe(arucoTargetLateralInput);
-    const yawDeg = parseFloatSafe(arucoTargetYawInput);
-    const yawRad = (yawDeg * Math.PI) / 180;
 
     autoDriveCmdRef.current.publish({
-      data: [forward, lateral, yawRad],
+      data: [forward, 0.0, 0.0],
     });
 
-    setArucoCmdInfo("r2_autodrive_cmd にArUco相対目標を送信しました");
+    setArucoCmdInfo("r2_autodrive_cmd に横位置目標を送信しました");
   };
 
   const publishArucoCameraOffset = () => {
@@ -1638,12 +1643,26 @@ function App() {
       data: targetId,
     });
 
-    setArucoCmdInfo(`r2_aruco_target_id に追尾ID ${targetId} を送信しました`);
+    setArucoCmdInfo("r2_aruco_target_id に追尾IDを送信しました");
   };
 
   const targetXValue = parseFloatSafe(targetXInput);
   const targetYValue = parseFloatSafe(targetYInput);
   const targetYawRadValue = parseFloatSafe(targetYawInput) * Math.PI / 180;
+  const arucoTargetForwardCameraValue = parseFloatSafe(arucoTargetForwardInput);
+  const arucoCameraOffsetXValue = parseFloatSafe(arucoCameraOffsetXInput, -0.1735);
+  const arucoCameraOffsetYValue = parseFloatSafe(arucoCameraOffsetYInput, 0.0);
+  const arucoTargetForwardRobotValue = arucoTargetForwardCameraValue + arucoCameraOffsetXValue;
+  const arucoTargetWorldPose = driveMode === "ARUCO" && arucoDetectedWorldPose
+    ? {
+      x:
+        arucoDetectedWorldPose.x -
+        (Math.cos(poseYaw) * arucoTargetForwardRobotValue),
+      y:
+        arucoDetectedWorldPose.y -
+        (Math.sin(poseYaw) * arucoTargetForwardRobotValue),
+    }
+    : null;
 
   const graphWidth = 360;
   const graphHeight = 250;
@@ -1652,6 +1671,8 @@ function App() {
     { x: poseX, y: poseY },
     { x: targetXValue, y: targetYValue },
     ...waypoints.map((waypoint) => ({ x: waypoint.x, y: waypoint.y })),
+    ...(arucoDetectedWorldPose ? [{ x: arucoDetectedWorldPose.x, y: arucoDetectedWorldPose.y }] : []),
+    ...(arucoTargetWorldPose ? [{ x: arucoTargetWorldPose.x, y: arucoTargetWorldPose.y }] : []),
   ];
 
   const graphMinXRaw = Math.min(...graphPoints.map((p) => p.x));
@@ -1857,6 +1878,10 @@ function App() {
   const currentY = toGraphY(poseY);
   const targetX = toGraphX(targetXValue);
   const targetY = toGraphY(targetYValue);
+  const arucoDetectedX = arucoDetectedWorldPose ? toGraphX(arucoDetectedWorldPose.x) : null;
+  const arucoDetectedY = arucoDetectedWorldPose ? toGraphY(arucoDetectedWorldPose.y) : null;
+  const arucoTargetX = arucoTargetWorldPose ? toGraphX(arucoTargetWorldPose.x) : null;
+  const arucoTargetY = arucoTargetWorldPose ? toGraphY(arucoTargetWorldPose.y) : null;
   const arrowLength = 20;
 
   const currentYaw = normalizeYawRad(poseYaw + yawOffsetRad);
@@ -2282,6 +2307,18 @@ function App() {
   }, [virtualOdomEnabled]);
 
   useEffect(() => {
+    arucoTargetIdValueRef.current = Math.trunc(parseFloatSafe(arucoTargetIdInput, -1));
+  }, [arucoTargetIdInput]);
+
+  useEffect(() => {
+    arucoCameraOffsetXRef.current = parseFloatSafe(arucoCameraOffsetXInput, -0.1735);
+  }, [arucoCameraOffsetXInput]);
+
+  useEffect(() => {
+    arucoCameraOffsetYRef.current = parseFloatSafe(arucoCameraOffsetYInput, 0.0);
+  }, [arucoCameraOffsetYInput]);
+
+  useEffect(() => {
     setStatus("接続中...");
 
     // ROS接続
@@ -2379,6 +2416,52 @@ function App() {
       ros: rosRef.current,
       name: "r2_aruco_target_id",
       messageType: "std_msgs/msg/Int32",
+    });
+
+    arucoIdSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/aruco_id",
+      messageType: "std_msgs/msg/Int32",
+    });
+    arucoIdSubRef.current.subscribe((msg) => {
+      const nextId = Number(msg?.data);
+      const normalizedId = Number.isFinite(nextId) ? nextId : null;
+      arucoDetectedIdRef.current = normalizedId;
+      setArucoDetectedId(normalizedId);
+    });
+
+    arucoPoseSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/aruco_pose",
+      messageType: "geometry_msgs/msg/PoseStamped",
+    });
+    arucoPoseSubRef.current.subscribe((msg) => {
+      const markerX = Number(msg?.pose?.position?.x);
+      const markerZ = Number(msg?.pose?.position?.z);
+      if (!Number.isFinite(markerX) || !Number.isFinite(markerZ)) {
+        return;
+      }
+
+      const targetId = arucoTargetIdValueRef.current;
+      const currentId = arucoDetectedIdRef.current;
+      if (targetId >= 0 && currentId !== targetId) {
+        return;
+      }
+
+      // Camera faces robot-left: camera x->robot forward, camera z->robot left
+      const measuredForward = markerX + arucoCameraOffsetXRef.current;
+      const measuredLateral = markerZ + arucoCameraOffsetYRef.current;
+
+      const pose = tracePoseRef.current;
+      const robotRight = -measuredLateral;
+      const robotForward = measuredForward;
+      const dxWorld = robotRight * Math.cos(pose.yaw) - robotForward * Math.sin(pose.yaw);
+      const dyWorld = robotRight * Math.sin(pose.yaw) + robotForward * Math.cos(pose.yaw);
+
+      setArucoDetectedWorldPose({
+        x: pose.x + dxWorld,
+        y: pose.y + dyWorld,
+      });
     });
 
     wallAngleSubRef.current = new ROSLIB.Topic({
@@ -2569,6 +2652,20 @@ function App() {
           driveModeRef.current.unsubscribe?.();
         } catch (error) {
           console.warn("Error unsubscribing drive mode topic:", error);
+        }
+      }
+      if (arucoPoseSubRef.current) {
+        try {
+          arucoPoseSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing aruco pose topic:", error);
+        }
+      }
+      if (arucoIdSubRef.current) {
+        try {
+          arucoIdSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing aruco id topic:", error);
         }
       }
       if (wallAngleSubRef.current) {
@@ -3087,9 +3184,27 @@ function App() {
 
                     <circle cx={currentX} cy={currentY} r="6" className="pose-graph-point-current" />
                     <circle cx={targetX} cy={targetY} r="6" className="pose-graph-point-target" />
+                    {arucoDetectedX !== null && arucoDetectedY !== null && (
+                      <circle cx={arucoDetectedX} cy={arucoDetectedY} r="5" className="pose-graph-point-aruco" />
+                    )}
+                    {arucoTargetX !== null && arucoTargetY !== null && (
+                      <circle cx={arucoTargetX} cy={arucoTargetY} r="5" className="pose-graph-point-aruco-target" />
+                    )}
 
                     <text x={currentX + 8} y={currentY - 8} className="pose-graph-label">{tr("現在", "Current")}</text>
                     <text x={targetX + 8} y={targetY - 8} className="pose-graph-label">{tr("目標", "Target")}</text>
+                    {arucoDetectedX !== null && arucoDetectedY !== null && (
+                      <text x={arucoDetectedX + 8} y={arucoDetectedY - 8} className="pose-graph-label">
+                        {arucoDetectedId !== null
+                          ? tr(`ArUco(ID:${arucoDetectedId})`, `ArUco(ID:${arucoDetectedId})`)
+                          : tr("ArUco", "ArUco")}
+                      </text>
+                    )}
+                    {arucoTargetX !== null && arucoTargetY !== null && (
+                      <text x={arucoTargetX + 8} y={arucoTargetY + 14} className="pose-graph-label">
+                        {tr("ArUco目標", "ArUco Target")}
+                      </text>
+                    )}
 
                     <text x={graphPadding} y={graphPadding - 8} className="pose-graph-corner-label">
                       Y {graphMaxY.toFixed(2)}
@@ -3113,6 +3228,14 @@ function App() {
                     <span className="pose-legend-item">
                       <i className="pose-legend-dot pose-legend-target" />
                       {tr("目標位置", "Target position")}
+                    </span>
+                    <span className="pose-legend-item">
+                      <i className="pose-legend-dot pose-legend-aruco" />
+                      {tr("検出ArUco", "Detected ArUco")}
+                    </span>
+                    <span className="pose-legend-item">
+                      <i className="pose-legend-dot pose-legend-aruco-target" />
+                      {tr("ArUco目標点", "ArUco target point")}
                     </span>
                   </div>
 
@@ -3227,8 +3350,8 @@ function App() {
                 </div>
                 <p className="aruco-control-description">
                   {tr(
-                    "機体中心基準のX/Yでカメラ位置を指定し、ArUcoに対する相対目標を送信します。X=前方, Y=左方です。",
-                    "Specify the camera position with body-frame X/Y and send a target relative to the ArUco marker. X = forward, Y = left."
+                    "一旦は奥行きと姿勢を無視し、カメラの横位置だけを合わせます。カメラが左向きなので、これは機体の前後移動に対応します。",
+                    "For now, ignore depth and orientation and align only the camera horizontal offset. Because the camera faces left, this corresponds to robot forward/back motion."
                   )}
                 </p>
 
@@ -3246,7 +3369,7 @@ function App() {
 
                   <div className="pose-input-item">
                     <label className="serial-packet-label">
-                      {tr("相対目標 Forward (m)", "Relative Target Forward (m)")}
+                      {tr("横位置目標 (m)", "Horizontal Offset Target (m)")}
                       <input
                         className="connection-input"
                         value={arucoTargetForwardInput}
@@ -3257,10 +3380,11 @@ function App() {
 
                   <div className="pose-input-item">
                     <label className="serial-packet-label">
-                      {tr("相対目標 Lateral (m)", "Relative Target Lateral (m)")}
+                      {tr("奥行き目標 (未使用)", "Depth Target (unused)")}
                       <input
                         className="connection-input"
                         value={arucoTargetLateralInput}
+                        disabled
                         onChange={(e) => setArucoTargetLateralInput(e.target.value)}
                       />
                     </label>
@@ -3268,10 +3392,11 @@ function App() {
 
                   <div className="pose-input-item">
                     <label className="serial-packet-label">
-                      {tr("相対目標 Yaw (°)", "Relative Target Yaw (°)")}
+                      {tr("姿勢目標 (未使用)", "Yaw Target (unused)")}
                       <input
                         className="connection-input"
                         value={arucoTargetYawInput}
+                        disabled
                         onChange={(e) => setArucoTargetYawInput(e.target.value)}
                       />
                     </label>
@@ -3305,7 +3430,7 @@ function App() {
                     {tr("追尾IDを送信", "Send Target ID")}
                   </button>
                   <button className="connection-button serial-send-button btn-send" onClick={publishArucoTargetCommand} disabled={!operationArmed}>
-                    {tr("ArUco相対目標を送信", "Send ArUco Relative Target")}
+                    {tr("横位置目標を送信", "Send Horizontal Target")}
                   </button>
                   <button className="connection-button btn-neutral" onClick={publishArucoCameraOffset} disabled={!operationArmed}>
                     {tr("カメラ位置を送信", "Send Camera Position")}
