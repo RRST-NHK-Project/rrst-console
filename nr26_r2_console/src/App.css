@@ -1436,6 +1436,59 @@
   gap: 8px;
 }
 
+.aruco-control-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(28, 106, 203, 0.08), rgba(255, 255, 255, 0.78));
+}
+
+.aruco-control-panel-active {
+  box-shadow: 0 0 0 1px rgba(28, 106, 203, 0.22) inset;
+}
+
+.aruco-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.aruco-control-title {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.95rem;
+}
+
+.aruco-control-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 106, 203, 0.26);
+  background: rgba(28, 106, 203, 0.12);
+  color: #1c56b8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.aruco-control-description {
+  margin: 8px 0 0;
+  color: var(--text-sub);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.aruco-control-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
 .pose-step-grid {
   margin-top: 10px;
   display: grid;
@@ -2058,6 +2111,14 @@
   .pose-input-grid,
   .pose-actions-row {
     grid-template-columns: 1fr;
+  }
+
+  .aruco-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aruco-control-header {
+    align-items: flex-start;
   }
 
   .pose-save-panel {

@@ -66,6 +66,7 @@ function App() {
   const odomRef = useRef(null);
   const driveModeRef = useRef(null);
   const autoDriveCmdRef = useRef(null);
+  const arucoCameraOffsetRef = useRef(null);
   const odomResetCmdRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
   const rosTopicTypeServiceRef = useRef(null);
@@ -142,6 +143,12 @@ function App() {
   const [targetXStep, setTargetXStep] = useState("0.1");
   const [targetYStep, setTargetYStep] = useState("0.1");
   const [targetYawStep, setTargetYawStep] = useState("5");
+  const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.45");
+  const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
+  const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
+  const [arucoCameraOffsetXInput, setArucoCameraOffsetXInput] = useState("-0.1735");
+  const [arucoCameraOffsetYInput, setArucoCameraOffsetYInput] = useState("0.0");
+  const [arucoCmdInfo, setArucoCmdInfo] = useState("未送信");
   const [savedPose, setSavedPose] = useState(null);
   const [savedPosesList, setSavedPosesList] = useState([]);
   const [waypoints, setWaypoints] = useState([]);
@@ -1568,6 +1575,50 @@ function App() {
     setAutoDriveCmdInfo("r2_autodrive_cmd に目標座標を送信しました");
   };
 
+  const publishArucoTargetCommand = () => {
+    if (!operationArmed) {
+      setArucoCmdInfo("操作許可がOFFのため送信できません");
+      return;
+    }
+
+    if (!autoDriveCmdRef.current) {
+      setArucoCmdInfo("ROS未接続のため送信できません");
+      return;
+    }
+
+    const forward = parseFloatSafe(arucoTargetForwardInput);
+    const lateral = parseFloatSafe(arucoTargetLateralInput);
+    const yawDeg = parseFloatSafe(arucoTargetYawInput);
+    const yawRad = (yawDeg * Math.PI) / 180;
+
+    autoDriveCmdRef.current.publish({
+      data: [forward, lateral, yawRad],
+    });
+
+    setArucoCmdInfo("r2_autodrive_cmd にArUco相対目標を送信しました");
+  };
+
+  const publishArucoCameraOffset = () => {
+    if (!operationArmed) {
+      setArucoCmdInfo("操作許可がOFFのため送信できません");
+      return;
+    }
+
+    if (!arucoCameraOffsetRef.current) {
+      setArucoCmdInfo("ROS未接続のため送信できません");
+      return;
+    }
+
+    const offsetX = parseFloatSafe(arucoCameraOffsetXInput);
+    const offsetY = parseFloatSafe(arucoCameraOffsetYInput);
+
+    arucoCameraOffsetRef.current.publish({
+      data: [offsetX, offsetY],
+    });
+
+    setArucoCmdInfo("r2_aruco_camera_offset にカメラ位置を送信しました");
+  };
+
   const targetXValue = parseFloatSafe(targetXInput);
   const targetYValue = parseFloatSafe(targetYInput);
   const targetYawRadValue = parseFloatSafe(targetYawInput) * Math.PI / 180;
@@ -2285,7 +2336,7 @@ function App() {
     });
     driveModeRef.current.subscribe((msg) => {
       const nextMode = (msg?.data || "").toUpperCase();
-      if (nextMode === "AUTO" || nextMode === "MANUAL") {
+      if (nextMode === "AUTO" || nextMode === "MANUAL" || nextMode === "ARUCO") {
         setDriveMode(nextMode);
       }
     });
@@ -2293,6 +2344,12 @@ function App() {
     autoDriveCmdRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r2_autodrive_cmd",
+      messageType: "std_msgs/msg/Float32MultiArray",
+    });
+
+    arucoCameraOffsetRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2_aruco_camera_offset",
       messageType: "std_msgs/msg/Float32MultiArray",
     });
 
@@ -3134,6 +3191,87 @@ function App() {
               </div>
 
               <p className="connection-hint">{translateRuntimeText(autoDriveCmdInfo)}</p>
+
+              <section className={`aruco-control-panel ${driveMode === "ARUCO" ? "aruco-control-panel-active" : ""}`}>
+                <div className="aruco-control-header">
+                  <h3 className="aruco-control-title">{tr("ArUcoモード設定", "ArUco Mode Settings")}</h3>
+                  <span className="aruco-control-badge">{driveMode}</span>
+                </div>
+                <p className="aruco-control-description">
+                  {tr(
+                    "機体中心基準のX/Yでカメラ位置を指定し、ArUcoに対する相対目標を送信します。X=前方, Y=左方です。",
+                    "Specify the camera position with body-frame X/Y and send a target relative to the ArUco marker. X = forward, Y = left."
+                  )}
+                </p>
+
+                <div className="aruco-control-grid">
+                  <div className="pose-input-item">
+                    <label className="serial-packet-label">
+                      {tr("相対目標 Forward (m)", "Relative Target Forward (m)")}
+                      <input
+                        className="connection-input"
+                        value={arucoTargetForwardInput}
+                        onChange={(e) => setArucoTargetForwardInput(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="pose-input-item">
+                    <label className="serial-packet-label">
+                      {tr("相対目標 Lateral (m)", "Relative Target Lateral (m)")}
+                      <input
+                        className="connection-input"
+                        value={arucoTargetLateralInput}
+                        onChange={(e) => setArucoTargetLateralInput(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="pose-input-item">
+                    <label className="serial-packet-label">
+                      {tr("相対目標 Yaw (°)", "Relative Target Yaw (°)")}
+                      <input
+                        className="connection-input"
+                        value={arucoTargetYawInput}
+                        onChange={(e) => setArucoTargetYawInput(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="pose-input-item">
+                    <label className="serial-packet-label">
+                      {tr("カメラ位置 X (m)", "Camera Position X (m)")}
+                      <input
+                        className="connection-input"
+                        value={arucoCameraOffsetXInput}
+                        onChange={(e) => setArucoCameraOffsetXInput(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="pose-input-item">
+                    <label className="serial-packet-label">
+                      {tr("カメラ位置 Y (m)", "Camera Position Y (m)")}
+                      <input
+                        className="connection-input"
+                        value={arucoCameraOffsetYInput}
+                        onChange={(e) => setArucoCameraOffsetYInput(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pose-actions-row">
+                  <button className="connection-button serial-send-button btn-send" onClick={publishArucoTargetCommand} disabled={!operationArmed}>
+                    {tr("ArUco相対目標を送信", "Send ArUco Relative Target")}
+                  </button>
+                  <button className="connection-button btn-neutral" onClick={publishArucoCameraOffset} disabled={!operationArmed}>
+                    {tr("カメラ位置を送信", "Send Camera Position")}
+                  </button>
+                </div>
+
+                <p className="connection-hint">{translateRuntimeText(arucoCmdInfo)}</p>
+              </section>
 
               <div className="pose-target-save-panel">
                 <button className="connection-button serial-send-button btn-save" onClick={saveTargetPose}>
