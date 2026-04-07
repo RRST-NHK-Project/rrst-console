@@ -67,6 +67,7 @@ function App() {
   const driveModeRef = useRef(null);
   const autoDriveCmdRef = useRef(null);
   const arucoCameraOffsetRef = useRef(null);
+  const arucoTargetIdRef = useRef(null);
   const odomResetCmdRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
   const rosTopicTypeServiceRef = useRef(null);
@@ -146,6 +147,7 @@ function App() {
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.45");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
+  const [arucoTargetIdInput, setArucoTargetIdInput] = useState("-1");
   const [arucoCameraOffsetXInput, setArucoCameraOffsetXInput] = useState("-0.1735");
   const [arucoCameraOffsetYInput, setArucoCameraOffsetYInput] = useState("0.0");
   const [arucoCmdInfo, setArucoCmdInfo] = useState("未送信");
@@ -1619,6 +1621,26 @@ function App() {
     setArucoCmdInfo("r2_aruco_camera_offset にカメラ位置を送信しました");
   };
 
+  const publishArucoTargetId = () => {
+    if (!operationArmed) {
+      setArucoCmdInfo("操作許可がOFFのため送信できません");
+      return;
+    }
+
+    if (!arucoTargetIdRef.current) {
+      setArucoCmdInfo("ROS未接続のため送信できません");
+      return;
+    }
+
+    const targetId = Math.trunc(parseFloatSafe(arucoTargetIdInput, -1));
+
+    arucoTargetIdRef.current.publish({
+      data: targetId,
+    });
+
+    setArucoCmdInfo(`r2_aruco_target_id に追尾ID ${targetId} を送信しました`);
+  };
+
   const targetXValue = parseFloatSafe(targetXInput);
   const targetYValue = parseFloatSafe(targetYInput);
   const targetYawRadValue = parseFloatSafe(targetYawInput) * Math.PI / 180;
@@ -2351,6 +2373,12 @@ function App() {
       ros: rosRef.current,
       name: "r2_aruco_camera_offset",
       messageType: "std_msgs/msg/Float32MultiArray",
+    });
+
+    arucoTargetIdRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2_aruco_target_id",
+      messageType: "std_msgs/msg/Int32",
     });
 
     wallAngleSubRef.current = new ROSLIB.Topic({
@@ -3207,6 +3235,17 @@ function App() {
                 <div className="aruco-control-grid">
                   <div className="pose-input-item">
                     <label className="serial-packet-label">
+                      {tr("追尾ID (-1 で全て)", "Target ID (-1 for any)")}
+                      <input
+                        className="connection-input"
+                        value={arucoTargetIdInput}
+                        onChange={(e) => setArucoTargetIdInput(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="pose-input-item">
+                    <label className="serial-packet-label">
                       {tr("相対目標 Forward (m)", "Relative Target Forward (m)")}
                       <input
                         className="connection-input"
@@ -3262,6 +3301,9 @@ function App() {
                 </div>
 
                 <div className="pose-actions-row">
+                  <button className="connection-button btn-neutral" onClick={publishArucoTargetId} disabled={!operationArmed}>
+                    {tr("追尾IDを送信", "Send Target ID")}
+                  </button>
                   <button className="connection-button serial-send-button btn-send" onClick={publishArucoTargetCommand} disabled={!operationArmed}>
                     {tr("ArUco相対目標を送信", "Send ArUco Relative Target")}
                   </button>

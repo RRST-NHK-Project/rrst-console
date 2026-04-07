@@ -253,6 +253,7 @@ export const runtimeTextByJa = {
     "odom_reset にリセット要求を送信しました": { en: "Sent reset request to odom_reset", de: "Reset-Anfrage an odom_reset gesendet" },
     "すべての保存目標値をクリアしました": { en: "Cleared all saved targets", de: "Alle gespeicherten Ziele geloescht" },
     "r2_autodrive_cmd に目標座標を送信しました": { en: "Sent target pose to r2_autodrive_cmd", de: "Ziel-Pose an r2_autodrive_cmd gesendet" },
+    "r2_aruco_target_id に追尾IDを送信しました": { en: "Sent target ID to r2_aruco_target_id", de: "Ziel-ID an r2_aruco_target_id gesendet" },
     "r2_autodrive_cmd にArUco相対目標を送信しました": { en: "Sent ArUco relative target to r2_autodrive_cmd", de: "ArUco-Relativziel an r2_autodrive_cmd gesendet" },
     "r2_aruco_camera_offset にカメラ位置を送信しました": { en: "Sent camera position to r2_aruco_camera_offset", de: "Kameraposition an r2_aruco_camera_offset gesendet" },
     "操作許可がOFFのため定期送信を停止しました": { en: "Periodic sending stopped because safety lock is ON", de: "Periodisches Senden gestoppt, da Sicherheitsverriegelung EIN" }
