@@ -64,6 +64,15 @@ const PLANNER_STATE_LABELS = {
   0: { ja: "待機", en: "Waiting" },
   1: { ja: "MFF進入", en: "Enter MFF" },
   2: { ja: "MFF離脱", en: "Leave MFF" },
+  3: { ja: "スタッフ組み立て", en: "Staff Assembly" },
+};
+
+const PLANNER_STATE_CODES = [0, 3, 1, 2];
+
+const DRIVE_MODE_LABELS = {
+  0: { ja: "手動", en: "Manual" },
+  1: { ja: "自動", en: "Auto" },
+  2: { ja: "ArUco", en: "ArUco" },
 };
 
 const PLANNER_COLOR_LABELS = {
@@ -91,6 +100,35 @@ const getPlannerModeLabel = (code, language) => {
   const entry = PLANNER_MODE_LABELS[code];
   return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "モード" : "Mode"} ${code}`;
 };
+
+const getDriveModeLabel = (code, language) => {
+  const entry = DRIVE_MODE_LABELS[code];
+  return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "モード" : "Mode"} ${code}`;
+};
+
+const createPlannerStatePoseConfig = () =>
+  Object.fromEntries(
+    PLANNER_STATE_CODES.map((stateCode) => [
+      stateCode,
+      {
+        enabled: false,
+        x: "0.0",
+        y: "0.0",
+        yaw: "0.0",
+      },
+    ])
+  );
+
+const createPlannerStateModeConfig = () =>
+  Object.fromEntries(
+    PLANNER_STATE_CODES.map((stateCode) => [
+      stateCode,
+      {
+        enabled: false,
+        modeCode: 1,
+      },
+    ])
+  );
 
 const MFF_LAYOUT_RED = [
   [1, 2, 3],
@@ -150,6 +188,10 @@ function App() {
   const taskColorCommandRef = useRef(null);
   const taskCellCommandRef = useRef(null);
   const taskTransitionModeRef = useRef(null);
+  const taskStateSequenceRef = useRef(null);
+  const taskStatePoseRef = useRef(null);
+  const taskStateModeRef = useRef(null);
+  const taskAutoSendEnabledRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
@@ -195,7 +237,6 @@ function App() {
   const [multiTabMode, setMultiTabMode] = useState(false);
   const pageOrder = [
     "controller",
-    "sequence",
     "pose",
     "planner",
     "wall-angle",
@@ -237,6 +278,10 @@ function App() {
   const [plannerStatusText, setPlannerStatusText] = useState("state=WAITING color=UNKNOWN cell=0 mode=MANUAL");
   const [plannerCellInput, setPlannerCellInput] = useState("0");
   const [plannerFieldRotated, setPlannerFieldRotated] = useState(true);
+  const [plannerAutoSendEnabled, setPlannerAutoSendEnabled] = useState(true);
+  const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...PLANNER_STATE_CODES]);
+  const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
+  const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -612,6 +657,89 @@ function App() {
   const publishPlannerTransitionMode = (modeCode) => {
     if (!taskTransitionModeRef.current) return;
     taskTransitionModeRef.current.publish({ data: Number(modeCode) });
+  };
+
+  const publishPlannerAutoSendEnabled = (enabled) => {
+    if (!taskAutoSendEnabledRef.current) return;
+    taskAutoSendEnabledRef.current.publish({ data: Boolean(enabled) });
+    setPlannerAutoSendEnabled(Boolean(enabled));
+  };
+
+  const publishPlannerStateSequence = (sequence = plannerStateSequence) => {
+    if (!taskStateSequenceRef.current) return;
+    taskStateSequenceRef.current.publish({ data: sequence.map((value) => Number(value)) });
+  };
+
+  const publishPlannerStatePose = (stateCode) => {
+    if (!taskStatePoseRef.current) return;
+    const config = plannerStatePoseConfig[stateCode];
+    if (!config) return;
+
+    const xValue = Number.parseFloat(config.x);
+    const yValue = Number.parseFloat(config.y);
+    const yawValue = Number.parseFloat(config.yaw);
+
+    taskStatePoseRef.current.publish({
+      data: [
+        Number(stateCode),
+        Number.isFinite(xValue) ? xValue : 0,
+        Number.isFinite(yValue) ? yValue : 0,
+        Number.isFinite(yawValue) ? yawValue : 0,
+        config.enabled ? 1 : 0,
+      ],
+    });
+  };
+
+  const publishPlannerStateMode = (stateCode) => {
+    if (!taskStateModeRef.current) return;
+    const config = plannerStateModeConfig[stateCode];
+    if (!config) return;
+
+    taskStateModeRef.current.publish({
+      data: [Number(stateCode), config.enabled ? Number(config.modeCode) : -1],
+    });
+  };
+
+  const movePlannerStateSequence = (stateCode, direction) => {
+    setPlannerStateSequence((prevSequence) => {
+      const currentIndex = prevSequence.indexOf(stateCode);
+      if (currentIndex < 0) {
+        return prevSequence;
+      }
+
+      const nextIndex = currentIndex + direction;
+      if (nextIndex < 0 || nextIndex >= prevSequence.length) {
+        return prevSequence;
+      }
+
+      const nextSequence = [...prevSequence];
+      [nextSequence[currentIndex], nextSequence[nextIndex]] = [nextSequence[nextIndex], nextSequence[currentIndex]];
+      return nextSequence;
+    });
+  };
+
+  const resetPlannerStateSequence = () => {
+    setPlannerStateSequence([...PLANNER_STATE_CODES]);
+  };
+
+  const updatePlannerStatePose = (stateCode, key, value) => {
+    setPlannerStatePoseConfig((prev) => ({
+      ...prev,
+      [stateCode]: {
+        ...prev[stateCode],
+        [key]: value,
+      },
+    }));
+  };
+
+  const updatePlannerStateMode = (stateCode, nextModeCode) => {
+    setPlannerStateModeConfig((prev) => ({
+      ...prev,
+      [stateCode]: {
+        enabled: nextModeCode >= 0,
+        modeCode: nextModeCode >= 0 ? nextModeCode : prev[stateCode]?.modeCode ?? 1,
+      },
+    }));
   };
 
   const togglePlannerTransitionMode = () => {
@@ -2755,6 +2883,32 @@ function App() {
       messageType: "std_msgs/msg/Int32",
     });
 
+    taskStateSequenceRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state_sequence",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
+    taskStatePoseRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state_pose",
+      messageType: "std_msgs/msg/Float32MultiArray",
+    });
+
+    taskStateModeRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state_mode",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
+    taskAutoSendEnabledRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_auto_send_enabled",
+      messageType: "std_msgs/msg/Bool",
+    });
+    taskAutoSendEnabledRef.current.publish({ data: true });
+    setPlannerAutoSendEnabled(true);
+
     taskStatusSubRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r2/task_status",
@@ -4226,82 +4380,223 @@ function App() {
 
               <section className="serial-bridge-card planner-controls-panel">
                 <div className="planner-toolbar planner-toolbar-bottom">
-                  <button
-                    className={`toggle-button ${plannerTransitionModeCode === 1 ? "toggle-on" : "toggle-off"}`}
-                    onClick={togglePlannerTransitionMode}
-                  >
-                    {tr("遷移モード切替", "Toggle Transition Mode")}: {plannerModeLabel}
-                  </button>
-                  <span className="connection-hint">
+                  <div className="planner-toolbar-main-controls">
+                    <button
+                      className={`toggle-button ${plannerTransitionModeCode === 1 ? "toggle-on" : "toggle-off"}`}
+                      onClick={togglePlannerTransitionMode}
+                    >
+                      {tr("遷移モード切替", "Toggle Transition Mode")}: {plannerModeLabel}
+                    </button>
+                    <button
+                      className={`toggle-button ${plannerAutoSendEnabled ? "toggle-on" : "toggle-off"}`}
+                      onClick={() => publishPlannerAutoSendEnabled(!plannerAutoSendEnabled)}
+                    >
+                      {plannerAutoSendEnabled
+                        ? tr("遷移時自動送信: ON", "Auto Send on Transition: ON")
+                        : tr("遷移時自動送信: OFF", "Auto Send on Transition: OFF")}
+                    </button>
+                    <div className="planner-toolbar-color-cell">
+                      <div className="planner-color-buttons planner-color-buttons-inline">
+                        <button
+                          className={`connection-button planner-choice-button planner-color-blue ${plannerColorCode === 0 ? "planner-choice-selected" : ""}`}
+                          onClick={() => publishPlannerColor(0)}
+                        >
+                          {tr("青", "Blue")}
+                        </button>
+                        <button
+                          className={`connection-button planner-choice-button planner-color-red ${plannerColorCode === 1 ? "planner-choice-selected" : ""}`}
+                          onClick={() => publishPlannerColor(1)}
+                        >
+                          {tr("赤", "Red")}
+                        </button>
+                        <button
+                          className={`connection-button planner-choice-button planner-color-unknown ${plannerColorCode === -1 ? "planner-choice-selected" : ""}`}
+                          onClick={() => publishPlannerColor(-1)}
+                        >
+                          {tr("未", "Unset")}
+                        </button>
+                      </div>
+
+                      <div className="planner-cell-row planner-cell-row-inline">
+                        <label className="serial-packet-label planner-cell-label planner-cell-label-inline">
+                          {tr("マス", "Cell")}
+                          <input
+                            className="connection-input"
+                            type="number"
+                            min="0"
+                            max="12"
+                            value={plannerCellInput}
+                            onChange={(e) => setPlannerCellInput(e.target.value)}
+                          />
+                        </label>
+                        <button className="connection-button btn-send" onClick={publishPlannerCell}>
+                          {tr("更新", "Apply")}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="connection-hint planner-toolbar-mode-hint">
                     {tr("現在のモード", "Current Mode")}: {plannerModeLabel}
                   </span>
                 </div>
 
-                <div className="planner-controls-grid">
-                  <section className="planner-status-card">
-                    <h3 className="serial-bridge-title">{tr("手動遷移", "Manual Transition")}</h3>
-                    <p className="connection-hint">
-                      {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
-                    </p>
-                    <div className="planner-state-buttons">
-                      {Object.entries(PLANNER_STATE_LABELS).map(([code, label]) => {
-                        const nextCode = Number(code);
-                        const isSelected = plannerStateCode === nextCode;
-                        return (
-                          <button
-                            key={`planner-state-${code}`}
-                            className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
-                            onClick={() => publishPlannerState(nextCode)}
-                            disabled={plannerTransitionModeCode === 1}
-                          >
-                            {language === "ja" ? label.ja : label.en}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
+                <section className="planner-status-card planner-manual-transition-card">
+                  <h3 className="serial-bridge-title">{tr("手動遷移", "Manual Transition")}</h3>
+                  <p className="connection-hint">
+                    {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
+                  </p>
+                  <div className="planner-state-buttons">
+                    {Object.entries(PLANNER_STATE_LABELS).map(([code, label]) => {
+                      const nextCode = Number(code);
+                      const isSelected = plannerStateCode === nextCode;
+                      return (
+                        <button
+                          key={`planner-state-${code}`}
+                          className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
+                          onClick={() => publishPlannerState(nextCode)}
+                          disabled={plannerTransitionModeCode === 1}
+                        >
+                          {language === "ja" ? label.ja : label.en}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
 
-                  <section className="planner-status-card">
-                    <h3 className="serial-bridge-title">{tr("色・マス設定", "Color and Cell")}</h3>
-                    <div className="planner-color-buttons">
-                      <button
-                        className={`connection-button planner-choice-button planner-color-blue ${plannerColorCode === 0 ? "planner-choice-selected" : ""}`}
-                        onClick={() => publishPlannerColor(0)}
-                      >
-                        {tr("青コート", "Blue")}
+                <section className="planner-state-config-panel">
+                  <div className="planner-state-config-header">
+                    <h3 className="serial-bridge-title">{tr("状態設定", "State Configuration")}</h3>
+                    <div className="planner-state-config-actions">
+                      <button className="connection-button btn-connect" onClick={() => publishPlannerStateSequence()}>
+                        {tr("順序を送信", "Send Sequence")}
                       </button>
-                      <button
-                        className={`connection-button planner-choice-button planner-color-red ${plannerColorCode === 1 ? "planner-choice-selected" : ""}`}
-                        onClick={() => publishPlannerColor(1)}
-                      >
-                        {tr("赤コート", "Red")}
-                      </button>
-                      <button
-                        className={`connection-button planner-choice-button planner-color-unknown ${plannerColorCode === -1 ? "planner-choice-selected" : ""}`}
-                        onClick={() => publishPlannerColor(-1)}
-                      >
-                        {tr("未設定", "Unknown")}
+                      <button className="serial-clear-button" onClick={resetPlannerStateSequence}>
+                        {tr("順序を初期化", "Reset Sequence")}
                       </button>
                     </div>
+                  </div>
+                  <p className="connection-hint planner-state-config-hint">
+                    {tr(
+                      "順序、状態ごとの目標座標、状態ごとのドライブモードをここでまとめて設定します。未指定の座標やモードは送信しません。",
+                      "Configure the state order, per-state target pose, and per-state drive mode here. Unset pose or mode values will not be sent."
+                    )}
+                  </p>
 
-                    <div className="planner-cell-row">
-                      <label className="serial-packet-label planner-cell-label">
-                        {tr("MFFマス番号 (1〜12, 0で未設定)", "MFF Cell (1-12, 0 for unset)")}
-                        <input
-                          className="connection-input"
-                          type="number"
-                          min="0"
-                          max="12"
-                          value={plannerCellInput}
-                          onChange={(e) => setPlannerCellInput(e.target.value)}
-                        />
-                      </label>
-                      <button className="connection-button btn-send" onClick={publishPlannerCell}>
-                        {tr("マス更新", "Apply Cell")}
-                      </button>
-                    </div>
-                  </section>
-                </div>
+                  <div className="planner-state-config-list">
+                    {plannerStateSequence.map((stateCode, index) => {
+                      const poseConfig = plannerStatePoseConfig[stateCode] || createPlannerStatePoseConfig()[stateCode];
+                      const modeConfig = plannerStateModeConfig[stateCode] || createPlannerStateModeConfig()[stateCode];
+                      const stateLabel = getPlannerStateLabel(stateCode, language);
+
+                      return (
+                        <article key={`planner-state-config-${stateCode}`} className="planner-state-config-card">
+                          <div className="planner-state-config-card-header">
+                            <div className="planner-state-config-card-title">
+                              <span className="planner-state-config-index">#{index + 1}</span>
+                              <h4>{stateLabel}</h4>
+                            </div>
+                            <div className="planner-state-config-reorder">
+                              <button
+                                className="connection-button btn-neutral"
+                                onClick={() => movePlannerStateSequence(stateCode, -1)}
+                                disabled={index === 0}
+                              >
+                                {tr("上へ", "Up")}
+                              </button>
+                              <button
+                                className="connection-button btn-neutral"
+                                onClick={() => movePlannerStateSequence(stateCode, 1)}
+                                disabled={index === plannerStateSequence.length - 1}
+                              >
+                                {tr("下へ", "Down")}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="planner-state-config-grid">
+                            <section className="planner-state-config-subcard">
+                              <div className="planner-state-config-subheader">
+                                <h5>{tr("座標・姿勢", "Pose")}</h5>
+                                <button
+                                  className={`toggle-button ${poseConfig.enabled ? "toggle-on" : "toggle-off"}`}
+                                  onClick={() => updatePlannerStatePose(stateCode, "enabled", !poseConfig.enabled)}
+                                >
+                                  {poseConfig.enabled ? tr("指定中", "Enabled") : tr("未指定", "Unset")}
+                                </button>
+                              </div>
+                              <div className="planner-state-config-fields">
+                                <label className="serial-packet-label">
+                                  X
+                                  <input
+                                    className="connection-input"
+                                    type="number"
+                                    step="0.01"
+                                    value={poseConfig.x}
+                                    onChange={(e) => updatePlannerStatePose(stateCode, "x", e.target.value)}
+                                  />
+                                </label>
+                                <label className="serial-packet-label">
+                                  Y
+                                  <input
+                                    className="connection-input"
+                                    type="number"
+                                    step="0.01"
+                                    value={poseConfig.y}
+                                    onChange={(e) => updatePlannerStatePose(stateCode, "y", e.target.value)}
+                                  />
+                                </label>
+                                <label className="serial-packet-label">
+                                  Yaw [rad]
+                                  <input
+                                    className="connection-input"
+                                    type="number"
+                                    step="0.01"
+                                    value={poseConfig.yaw}
+                                    onChange={(e) => updatePlannerStatePose(stateCode, "yaw", e.target.value)}
+                                  />
+                                </label>
+                              </div>
+                              <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStatePose(stateCode)}>
+                                {tr("座標を送信", "Send Pose")}
+                              </button>
+                            </section>
+
+                            <section className="planner-state-config-subcard">
+                              <div className="planner-state-config-subheader">
+                                <h5>{tr("モード", "Mode")}</h5>
+                                <button
+                                  className={`toggle-button ${modeConfig.enabled ? "toggle-on" : "toggle-off"}`}
+                                  onClick={() => updatePlannerStateMode(stateCode, modeConfig.enabled ? -1 : modeConfig.modeCode)}
+                                >
+                                  {modeConfig.enabled ? tr("指定中", "Enabled") : tr("未指定", "Unset")}
+                                </button>
+                              </div>
+                              <div className="planner-state-mode-buttons">
+                                {Object.entries(DRIVE_MODE_LABELS).map(([modeCode, label]) => {
+                                  const numericModeCode = Number(modeCode);
+                                  const isSelected = modeConfig.enabled && modeConfig.modeCode === numericModeCode;
+                                  return (
+                                    <button
+                                      key={`planner-state-mode-${stateCode}-${modeCode}`}
+                                      className={`connection-button planner-choice-button ${isSelected ? "planner-choice-selected" : ""}`}
+                                      onClick={() => updatePlannerStateMode(stateCode, numericModeCode)}
+                                    >
+                                      {getDriveModeLabel(numericModeCode, language)}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStateMode(stateCode)}>
+                                {tr("モードを送信", "Send Mode")}
+                              </button>
+                            </section>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+
               </section>
             </section>
           )}

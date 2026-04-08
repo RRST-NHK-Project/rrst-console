@@ -576,13 +576,97 @@
 .planner-toolbar {
   margin-top: 10px;
   display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.planner-toolbar-bottom {
+  margin-top: 0;
+}
+
+.planner-toolbar-main-controls {
+  width: 100%;
+  display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.planner-toolbar-bottom {
+.planner-toolbar-mode-hint {
+  width: 100%;
+  text-align: right;
+}
+
+.planner-toolbar-color-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planner-color-buttons-inline {
   margin-top: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.planner-color-buttons-inline .planner-choice-button {
+  min-height: 40px;
+  min-width: 58px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.planner-color-buttons-inline .planner-choice-selected {
+  transform: none;
+}
+
+.planner-color-buttons-inline .planner-color-blue.planner-choice-selected,
+.planner-color-buttons-inline .planner-color-red.planner-choice-selected,
+.planner-color-buttons-inline .planner-color-unknown.planner-choice-selected {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.78), 0 0 0 4px rgba(0, 0, 0, 0.08);
+}
+
+.planner-cell-row-inline {
+  margin-top: 0;
+  grid-template-columns: minmax(96px, 130px) 78px;
+  align-items: end;
+}
+
+.planner-cell-label-inline {
+  font-size: 0.78rem;
+  gap: 2px;
+}
+
+.planner-cell-label-inline .connection-input {
+  height: 40px;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+
+.planner-toolbar-main-controls>.toggle-button {
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.planner-cell-row-inline .connection-button {
+  height: 40px;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  align-self: end;
 }
 
 .planner-top-grid {
@@ -602,6 +686,142 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.planner-controls-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.planner-manual-transition-card {
+  margin-top: 10px;
+}
+
+.planner-state-config-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(26, 82, 118, 0.16);
+  background: linear-gradient(180deg, rgba(247, 251, 255, 0.96), rgba(242, 247, 250, 0.94));
+}
+
+.planner-state-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.planner-state-config-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planner-state-config-hint {
+  margin-top: 6px;
+}
+
+.planner-state-config-list {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.planner-state-config-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 82, 118, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.planner-state-config-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.planner-state-config-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planner-state-config-card-title h4 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.planner-state-config-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.1em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(26, 82, 118, 0.08);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.planner-state-config-reorder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planner-state-config-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.planner-state-config-subcard {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(248, 252, 255, 0.95);
+}
+
+.planner-state-config-subheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planner-state-config-subheader h5 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.planner-state-config-fields {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.planner-state-config-apply {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.planner-state-mode-buttons {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .planner-status-grid {
@@ -635,7 +855,7 @@
 .planner-state-buttons {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
