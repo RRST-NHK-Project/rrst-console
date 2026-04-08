@@ -57,6 +57,80 @@ const chooseGridStep = (span) => {
   return 20;
 };
 
+const PLANNER_STATE_LABELS = {
+  0: { ja: "待機", en: "Waiting" },
+  1: { ja: "MFF進入", en: "Enter MFF" },
+  2: { ja: "MFF離脱", en: "Leave MFF" },
+};
+
+const PLANNER_COLOR_LABELS = {
+  [-1]: { ja: "未設定", en: "Unknown" },
+  0: { ja: "青コート", en: "Blue" },
+  1: { ja: "赤コート", en: "Red" },
+};
+
+const PLANNER_MODE_LABELS = {
+  0: { ja: "手動遷移", en: "Manual" },
+  1: { ja: "自動遷移", en: "Auto" },
+};
+
+const getPlannerStateLabel = (code, language) => {
+  const entry = PLANNER_STATE_LABELS[code];
+  return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "状態" : "State"} ${code}`;
+};
+
+const getPlannerColorLabel = (code, language) => {
+  const entry = PLANNER_COLOR_LABELS[code];
+  return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "色" : "Color"} ${code}`;
+};
+
+const getPlannerModeLabel = (code, language) => {
+  const entry = PLANNER_MODE_LABELS[code];
+  return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "モード" : "Mode"} ${code}`;
+};
+
+const MFF_LAYOUT_RED = [
+  [1, 2, 3],
+  [4, 5, 6],
+  [7, 8, 9],
+  [10, 11, 12],
+];
+
+const MFF_LAYOUT_BLUE = [
+  [3, 2, 1],
+  [6, 5, 4],
+  [9, 8, 7],
+  [12, 11, 10],
+];
+
+const getMffLayout = (colorCode) => {
+  if (colorCode === 1) {
+    return MFF_LAYOUT_RED;
+  }
+  if (colorCode === 0) {
+    return MFF_LAYOUT_BLUE;
+  }
+  return MFF_LAYOUT_RED;
+};
+
+// Height groups (mm) based on the shared field diagram.
+const MFF_HEIGHT_LEVEL_BY_CELL = {
+  1: "mm-200",
+  2: "mm-0",
+  3: "mm-200",
+  4: "mm-0",
+  5: "mm-200",
+  6: "mm-400",
+  7: "mm-200",
+  8: "mm-400",
+  9: "mm-200",
+  10: "mm-0",
+  11: "mm-200",
+  12: "mm-0",
+};
+
+const getMffHeightLevel = (cellNumber) => MFF_HEIGHT_LEVEL_BY_CELL[cellNumber] || "mm-200";
+
 function App() {
   const rosRef = useRef(null);
   const commandRef = useRef(null);
@@ -69,6 +143,12 @@ function App() {
   const arucoCameraOffsetRef = useRef(null);
   const arucoTargetIdRef = useRef(null);
   const odomResetCmdRef = useRef(null);
+  const taskStateCommandRef = useRef(null);
+  const taskColorCommandRef = useRef(null);
+  const taskCellCommandRef = useRef(null);
+  const taskTransitionModeRef = useRef(null);
+  const taskStatusSubRef = useRef(null);
+  const taskStatusTextSubRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
   const rosTopicTypeServiceRef = useRef(null);
   const topicEchoSubRef = useRef(null);
@@ -114,6 +194,7 @@ function App() {
     "controller",
     "sequence",
     "pose",
+    "planner",
     "wall-angle",
     "waypoint",
     "teaching",
@@ -146,6 +227,12 @@ function App() {
   const [targetXStep, setTargetXStep] = useState("0.1");
   const [targetYStep, setTargetYStep] = useState("0.1");
   const [targetYawStep, setTargetYawStep] = useState("5");
+  const [plannerStateCode, setPlannerStateCode] = useState(0);
+  const [plannerColorCode, setPlannerColorCode] = useState(-1);
+  const [plannerCellCode, setPlannerCellCode] = useState(0);
+  const [plannerTransitionModeCode, setPlannerTransitionModeCode] = useState(0);
+  const [plannerStatusText, setPlannerStatusText] = useState("state=WAITING color=UNKNOWN cell=0 mode=MANUAL");
+  const [plannerCellInput, setPlannerCellInput] = useState("0");
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -343,6 +430,7 @@ function App() {
     if (page === "controller") return tr("コントローラ操作", "Controller");
     if (page === "sequence") return tr("シーケンス操作", "Sequence");
     if (page === "pose") return tr("座標・姿勢管理", "Pose");
+    if (page === "planner") return tr("プランナー", "Planner");
     if (page === "wall-angle") return tr("壁角度", "Wall Angle");
     if (page === "waypoint") return tr("ウェイポイント", "Waypoints");
     if (page === "teaching") return tr("ティーチング", "Teaching");
@@ -495,6 +583,46 @@ function App() {
       </div>
     </section>
   );
+
+  const publishPlannerState = (stateCode) => {
+    if (!taskStateCommandRef.current) return;
+    taskStateCommandRef.current.publish({ data: Number(stateCode) });
+  };
+
+  const publishPlannerColor = (colorCode) => {
+    if (!taskColorCommandRef.current) return;
+    taskColorCommandRef.current.publish({ data: Number(colorCode) });
+  };
+
+  const publishPlannerCell = () => {
+    if (!taskCellCommandRef.current) return;
+    const nextCell = Number.parseInt(plannerCellInput, 10);
+    taskCellCommandRef.current.publish({ data: Number.isFinite(nextCell) ? nextCell : 0 });
+  };
+
+  const publishPlannerCellValue = (cellValue) => {
+    if (!taskCellCommandRef.current) return;
+    taskCellCommandRef.current.publish({ data: Number(cellValue) });
+  };
+
+  const publishPlannerTransitionMode = (modeCode) => {
+    if (!taskTransitionModeRef.current) return;
+    taskTransitionModeRef.current.publish({ data: Number(modeCode) });
+  };
+
+  const togglePlannerTransitionMode = () => {
+    const nextMode = plannerTransitionModeCode === 1 ? 0 : 1;
+    publishPlannerTransitionMode(nextMode);
+  };
+
+  const plannerStateLabel = getPlannerStateLabel(plannerStateCode, language);
+  const plannerColorLabel = getPlannerColorLabel(plannerColorCode, language);
+  const plannerModeLabel = getPlannerModeLabel(plannerTransitionModeCode, language);
+  const plannerLayoutRed = getMffLayout(1);
+  const plannerLayoutBlue = getMffLayout(0);
+  const showRedCourt = plannerColorCode !== 0;
+  const showBlueCourt = plannerColorCode !== 1;
+  const isSingleCourtView = (showRedCourt ? 1 : 0) + (showBlueCourt ? 1 : 0) === 1;
 
   const callRosService = (serviceRef, requestData) =>
     new Promise((resolve, reject) => {
@@ -2599,6 +2727,62 @@ function App() {
       messageType: "std_msgs/msg/Bool",
     });
 
+    taskStateCommandRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    taskColorCommandRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_color",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    taskCellCommandRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_cell",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    taskTransitionModeRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_transition_mode",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    taskStatusSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_status",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+    taskStatusSubRef.current.subscribe((msg) => {
+      const data = Array.isArray(msg?.data) ? msg.data : [];
+      if (data.length >= 1) {
+        setPlannerStateCode(Number(data[0]) || 0);
+      }
+      if (data.length >= 2) {
+        setPlannerColorCode(Number(data[1]));
+      }
+      if (data.length >= 3) {
+        const nextCell = Number(data[2]);
+        setPlannerCellCode(Number.isFinite(nextCell) ? nextCell : 0);
+        setPlannerCellInput(String(Number.isFinite(nextCell) ? nextCell : 0));
+      }
+      if (data.length >= 4) {
+        setPlannerTransitionModeCode(Number(data[3]) || 0);
+      }
+    });
+
+    taskStatusTextSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_status_text",
+      messageType: "std_msgs/msg/String",
+    });
+    taskStatusTextSubRef.current.subscribe((msg) => {
+      setPlannerStatusText(String(msg?.data || ""));
+    });
+
     rosTopicsServiceRef.current = new ROSLIB.Service({
       ros: rosRef.current,
       name: "/rosapi/topics",
@@ -2652,6 +2836,20 @@ function App() {
           driveModeRef.current.unsubscribe?.();
         } catch (error) {
           console.warn("Error unsubscribing drive mode topic:", error);
+        }
+      }
+      if (taskStatusSubRef.current) {
+        try {
+          taskStatusSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing task status topic:", error);
+        }
+      }
+      if (taskStatusTextSubRef.current) {
+        try {
+          taskStatusTextSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing task status text topic:", error);
         }
       }
       if (arucoPoseSubRef.current) {
@@ -3888,6 +4086,206 @@ function App() {
               </div>
 
               <p className="connection-hint">{translateRuntimeText(waypointInfo)}</p>
+            </section>
+          )}
+
+          {isPageActive("planner") && (
+            <section className="serial-bridge-panel planner-panel">
+              <h2 className="serial-packet-title">{tr("プランナー", "Task Planner")}</h2>
+              <p className="serial-packet-hint">
+                {tr(
+                  "状態、コート色、MFFマス番号、遷移モードを監視し、手動遷移と自動遷移を切り替えます。",
+                  "Monitor state, coat color, MFF cell, and transition mode. Switch between manual and auto transitions."
+                )}
+              </p>
+
+              <div className="planner-top-grid">
+                <div className="planner-field-card">
+                  <div className="planner-field-header">
+                    <h3 className="serial-bridge-title">{tr("MFF現在地", "MFF Position")}</h3>
+                    <span className="planner-field-badge">
+                      {tr("選択中の色", "Selected color")}: {plannerColorLabel}
+                    </span>
+                  </div>
+                  <p className="connection-hint planner-field-hint">
+                    {tr(
+                      "緑マスの番号に合わせて現在地を表示します。コートを選択すると該当側だけ表示し、未設定時は両方表示します。",
+                      "The numbered green cells show the current position. Selecting a court shows only that side; unknown shows both sides."
+                    )}
+                  </p>
+
+                  <div className="planner-height-legend">
+                    <span className="planner-height-chip planner-height-mm-200">200mm</span>
+                    <span className="planner-height-chip planner-height-mm-0">0mm</span>
+                    <span className="planner-height-chip planner-height-mm-400">400mm</span>
+                  </div>
+
+                  <div className={`planner-field-layout-grid ${isSingleCourtView ? "planner-field-layout-grid-single" : ""}`}>
+                    {showRedCourt && <section className="planner-field-court planner-field-court-red">
+                      <div className="planner-field-court-title-row">
+                        <h4>{tr("赤コート", "Red Court")}</h4>
+                        <span>{tr("左側レイアウト", "Left-side layout")}</span>
+                      </div>
+                      <div className="planner-field-cells">
+                        {plannerLayoutRed.flatMap((row) => row.map((cell) => {
+                          const isCurrent = plannerColorCode === 1 && plannerCellCode === cell;
+                          const heightLevel = getMffHeightLevel(cell);
+                          return (
+                            <button
+                              key={`mff-red-${cell}`}
+                              type="button"
+                              className={`planner-field-cell planner-field-cell-red planner-field-height-${heightLevel} ${isCurrent ? "planner-field-cell-current" : ""}`}
+                              onClick={() => {
+                                setPlannerColorCode(1);
+                                setPlannerCellInput(String(cell));
+                                publishPlannerColor(1);
+                                publishPlannerCellValue(cell);
+                              }}
+                              title={tr(`赤コート ${cell}番`, `Red court cell ${cell}`)}
+                            >
+                              <span className="planner-field-cell-number">{cell}</span>
+                              {isCurrent && <span className="planner-field-current-tag">{tr("現在地", "Current")}</span>}
+                            </button>
+                          );
+                        }))}
+                      </div>
+                    </section>}
+
+                    {showBlueCourt && <section className="planner-field-court planner-field-court-blue">
+                      <div className="planner-field-court-title-row">
+                        <h4>{tr("青コート", "Blue Court")}</h4>
+                        <span>{tr("右側レイアウト", "Right-side layout")}</span>
+                      </div>
+                      <div className="planner-field-cells">
+                        {plannerLayoutBlue.flatMap((row) => row.map((cell) => {
+                          const isCurrent = plannerColorCode === 0 && plannerCellCode === cell;
+                          const heightLevel = getMffHeightLevel(cell);
+                          return (
+                            <button
+                              key={`mff-blue-${cell}`}
+                              type="button"
+                              className={`planner-field-cell planner-field-cell-blue planner-field-height-${heightLevel} ${isCurrent ? "planner-field-cell-current" : ""}`}
+                              onClick={() => {
+                                setPlannerColorCode(0);
+                                setPlannerCellInput(String(cell));
+                                publishPlannerColor(0);
+                                publishPlannerCellValue(cell);
+                              }}
+                              title={tr(`青コート ${cell}番`, `Blue court cell ${cell}`)}
+                            >
+                              <span className="planner-field-cell-number">{cell}</span>
+                              {isCurrent && <span className="planner-field-current-tag">{tr("現在地", "Current")}</span>}
+                            </button>
+                          );
+                        }))}
+                      </div>
+                    </section>}
+                  </div>
+                </div>
+
+                <section className="serial-bridge-card planner-status-card planner-status-card-top">
+                  <h3 className="serial-bridge-title">{tr("状態監視", "Status Monitor")}</h3>
+                  <div className="pose-current-grid planner-current-grid">
+                    <div className="pose-current-item">
+                      <span>{tr("状態", "State")}</span>
+                      <strong>{plannerStateLabel}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("色", "Color")}</span>
+                      <strong>{plannerColorLabel}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("MFFマス", "MFF Cell")}</span>
+                      <strong>{plannerCellCode === 0 ? tr("未設定", "Unset") : plannerCellCode}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("遷移", "Transition")}</span>
+                      <strong>{plannerModeLabel}</strong>
+                    </div>
+                  </div>
+                  <p className="connection-hint planner-status-text">{plannerStatusText || tr("状態テキスト未受信", "No status text yet")}</p>
+                </section>
+              </div>
+
+              <section className="serial-bridge-card planner-controls-panel">
+                <div className="planner-toolbar planner-toolbar-bottom">
+                  <button
+                    className={`toggle-button ${plannerTransitionModeCode === 1 ? "toggle-on" : "toggle-off"}`}
+                    onClick={togglePlannerTransitionMode}
+                  >
+                    {tr("遷移モード切替", "Toggle Transition Mode")}: {plannerModeLabel}
+                  </button>
+                  <span className="connection-hint">
+                    {tr("現在のモード", "Current Mode")}: {plannerModeLabel}
+                  </span>
+                </div>
+
+                <div className="planner-controls-grid">
+                  <section className="planner-status-card">
+                    <h3 className="serial-bridge-title">{tr("手動遷移", "Manual Transition")}</h3>
+                    <p className="connection-hint">
+                      {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
+                    </p>
+                    <div className="planner-state-buttons">
+                      {Object.entries(PLANNER_STATE_LABELS).map(([code, label]) => {
+                        const nextCode = Number(code);
+                        const isSelected = plannerStateCode === nextCode;
+                        return (
+                          <button
+                            key={`planner-state-${code}`}
+                            className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
+                            onClick={() => publishPlannerState(nextCode)}
+                            disabled={plannerTransitionModeCode === 1}
+                          >
+                            {language === "ja" ? label.ja : label.en}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="planner-status-card">
+                    <h3 className="serial-bridge-title">{tr("色・マス設定", "Color and Cell")}</h3>
+                    <div className="planner-color-buttons">
+                      <button
+                        className={`connection-button planner-choice-button planner-color-blue ${plannerColorCode === 0 ? "planner-choice-selected" : ""}`}
+                        onClick={() => publishPlannerColor(0)}
+                      >
+                        {tr("青コート", "Blue")}
+                      </button>
+                      <button
+                        className={`connection-button planner-choice-button planner-color-red ${plannerColorCode === 1 ? "planner-choice-selected" : ""}`}
+                        onClick={() => publishPlannerColor(1)}
+                      >
+                        {tr("赤コート", "Red")}
+                      </button>
+                      <button
+                        className={`connection-button planner-choice-button planner-color-unknown ${plannerColorCode === -1 ? "planner-choice-selected" : ""}`}
+                        onClick={() => publishPlannerColor(-1)}
+                      >
+                        {tr("未設定", "Unknown")}
+                      </button>
+                    </div>
+
+                    <div className="planner-cell-row">
+                      <label className="serial-packet-label planner-cell-label">
+                        {tr("MFFマス番号 (1〜12, 0で未設定)", "MFF Cell (1-12, 0 for unset)")}
+                        <input
+                          className="connection-input"
+                          type="number"
+                          min="0"
+                          max="12"
+                          value={plannerCellInput}
+                          onChange={(e) => setPlannerCellInput(e.target.value)}
+                        />
+                      </label>
+                      <button className="connection-button btn-send" onClick={publishPlannerCell}>
+                        {tr("マス更新", "Apply Cell")}
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              </section>
             </section>
           )}
 
