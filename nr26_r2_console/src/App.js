@@ -3,6 +3,9 @@ import * as ROSLIB from "roslib";
 import "./App.css";
 import { getLocalizedText, translateRuntimeText as translateRuntimeByLanguage } from "./i18n";
 import { LANGUAGE_OPTIONS } from "./i18n";
+import appPackage from "../package.json";
+
+const GUI_VERSION = process.env.REACT_APP_UI_VERSION || appPackage.version || "0.0.0";
 
 const PACKET_INDEX_LABELS = [
   "DEBUG",
@@ -233,6 +236,7 @@ function App() {
   const [plannerTransitionModeCode, setPlannerTransitionModeCode] = useState(0);
   const [plannerStatusText, setPlannerStatusText] = useState("state=WAITING color=UNKNOWN cell=0 mode=MANUAL");
   const [plannerCellInput, setPlannerCellInput] = useState("0");
+  const [plannerFieldRotated, setPlannerFieldRotated] = useState(true);
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -2937,6 +2941,7 @@ function App() {
             <div>
               <h1>R2 Console</h1>
               <p>{tr("フロントエンド強制停止", "Frontend Forced Shutdown")}</p>
+              <p className="console-version-text">ver {GUI_VERSION}</p>
             </div>
           </header>
 
@@ -3054,6 +3059,7 @@ function App() {
           <div>
             <h1>R2 Console</h1>
             <p>{tr("R2 テレオペレーションパネル", "ROS2 Teleoperation Panel")}</p>
+            <p className="console-version-text">ver {GUI_VERSION}</p>
           </div>
           <div className="header-tools">
             {renderLanguageSelect("lang-select", "lang-header")}
@@ -4103,9 +4109,20 @@ function App() {
                 <div className="planner-field-card">
                   <div className="planner-field-header">
                     <h3 className="serial-bridge-title">{tr("MFF現在地", "MFF Position")}</h3>
-                    <span className="planner-field-badge">
-                      {tr("選択中の色", "Selected color")}: {plannerColorLabel}
-                    </span>
+                    <div className="planner-field-header-actions">
+                      <span className="planner-field-badge">
+                        {tr("選択中の色", "Selected color")}: {plannerColorLabel}
+                      </span>
+                      <button
+                        type="button"
+                        className={`planner-rotate-button ${plannerFieldRotated ? "planner-rotate-button-active" : ""}`}
+                        onClick={() => setPlannerFieldRotated((prev) => !prev)}
+                      >
+                        {plannerFieldRotated
+                          ? tr("図回転: 180°", "Rotation: 180°")
+                          : tr("図回転: 0°", "Rotation: 0°")}
+                      </button>
+                    </div>
                   </div>
                   <p className="connection-hint planner-field-hint">
                     {tr(
@@ -4120,7 +4137,7 @@ function App() {
                     <span className="planner-height-chip planner-height-mm-400">400mm</span>
                   </div>
 
-                  <div className={`planner-field-layout-grid ${isSingleCourtView ? "planner-field-layout-grid-single" : ""}`}>
+                  <div className={`planner-field-layout-grid ${isSingleCourtView ? "planner-field-layout-grid-single" : ""} ${plannerFieldRotated ? "planner-field-layout-grid-rotated" : ""}`}>
                     {showRedCourt && <section className="planner-field-court planner-field-court-red">
                       <div className="planner-field-court-title-row">
                         <h4>{tr("赤コート", "Red Court")}</h4>

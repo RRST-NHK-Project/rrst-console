@@ -185,6 +185,14 @@
   font-size: 0.95rem;
 }
 
+.console-version-text {
+  margin: 4px 0 0;
+  color: #6d4d4d;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .connection-row {
   margin-top: 10px;
   display: grid;
@@ -729,6 +737,13 @@
   flex-wrap: wrap;
 }
 
+.planner-field-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .planner-field-badge {
   padding: 6px 10px;
   border-radius: 999px;
@@ -781,6 +796,19 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  transform-origin: center;
+  transition: transform 0.22s ease;
+}
+
+.planner-field-layout-grid-rotated {
+  transform: rotate(180deg);
+}
+
+.planner-field-layout-grid-rotated .planner-field-court-title-row h4,
+.planner-field-layout-grid-rotated .planner-field-court-title-row span,
+.planner-field-layout-grid-rotated .planner-field-cell-number,
+.planner-field-layout-grid-rotated .planner-field-current-tag {
+  transform: rotate(180deg);
 }
 
 .planner-field-layout-grid-single {
@@ -922,6 +950,23 @@
 
 .planner-field-cell:hover {
   filter: brightness(1.04);
+}
+
+.planner-rotate-button {
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: #ffffff;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.planner-rotate-button-active {
+  background: linear-gradient(135deg, #202428, #3e464f);
+  color: #f6f8fb;
+  border-color: transparent;
 }
 
 .serial-bridge-toolbar {
