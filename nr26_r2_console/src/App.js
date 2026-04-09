@@ -307,6 +307,9 @@ function App() {
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
   const [plannerStateOdomResetConfig, setPlannerStateOdomResetConfig] = useState(() => createPlannerStateOdomResetConfig());
+  const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
+  const [plannerExportsList, setPlannerExportsList] = useState([]);
+  const [plannerSelectedExportPath, setPlannerSelectedExportPath] = useState("");
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -927,6 +930,7 @@ function App() {
     setPlannerStatePoseConfig(nextPoseConfig);
     setPlannerStateModeConfig(nextModeConfig);
     setPlannerStateOdomResetConfig(nextOdomResetConfig);
+    setPlannerConfigIsDirty(false);
     setPlannerStatusText(
       source === "startup"
         ? tr(`最新設定を自動読込しました (${normalizedSequence.length} 状態)`, `Loaded latest config automatically (${normalizedSequence.length} states)`)
@@ -1009,6 +1013,7 @@ function App() {
         `State configuration exported${saveSuffix}`
       )
     );
+    setPlannerConfigIsDirty(false);
   };
 
   const importPlannerStateConfigFromFile = async (event) => {
@@ -1047,6 +1052,44 @@ function App() {
       applyPlannerStateConfigData(payload.data, { source: "startup" });
     } catch (error) {
       console.warn("Failed to auto-load latest planner state configuration:", error);
+    }
+  };
+
+  const loadPlannerExportsList = async () => {
+    try {
+      const response = await fetch(`${backendBaseUrl}/api/json-exports/list?category=planner_state_config`);
+      if (!response.ok) {
+        setPlannerExportsList([]);
+        return;
+      }
+      const payload = await response.json();
+      const files = Array.isArray(payload?.files) ? payload.files : [];
+      setPlannerExportsList(files);
+    } catch (error) {
+      console.warn("Failed to load planner exports list:", error);
+      setPlannerExportsList([]);
+    }
+  };
+
+  const loadPlannerExportFile = async (relativePath) => {
+    try {
+      const response = await fetch(
+        `${backendBaseUrl}/api/json-exports/get?category=planner_state_config&path=${encodeURIComponent(relativePath)}`
+      );
+      if (!response.ok) {
+        setPlannerStatusText(tr("ファイル読込に失敗しました", "Failed to load file"));
+        return;
+      }
+      const payload = await response.json();
+      if (!payload?.found || !payload?.data) {
+        setPlannerStatusText(tr("ファイルが見つかりません", "File not found"));
+        return;
+      }
+      applyPlannerStateConfigData(payload.data, { source: "import" });
+      setPlannerSelectedExportPath("");
+    } catch (error) {
+      console.warn("Failed to load planner export file:", error);
+      setPlannerStatusText(tr("ファイル読込に失敗しました", "Failed to load file"));
     }
   };
 
@@ -3464,6 +3507,28 @@ function App() {
     };
   }, [virtualOdomEnabled, virtualOdomHzInput, poseX, poseY, poseYaw]);
 
+  // Track if planner configuration is dirty
+  useEffect(() => {
+    setPlannerConfigIsDirty(true);
+  }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerCustomStates]);
+
+  // Register beforeunload warning for unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (!plannerConfigIsDirty) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = tr(
+        "未保存の設定変更があります。本当にページを閉じますか？",
+        "You have unsaved configuration changes. Are you sure?"
+      );
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [plannerConfigIsDirty]);
+
   if (frontendForceStopped) {
     return (
       <div className="console-page">
@@ -4879,6 +4944,50 @@ function App() {
                       "Configure state order, per-state target pose, per-state drive mode, and per-state odometry reset here. Unset pose or mode values will not be sent."
                     )}
                   </p>
+
+                  <section className="planner-state-config-subcard" style={{ marginBottom: 10 }}>
+                    <div className="planner-state-config-subheader">
+                      <h5>{tr("保存済み設定の読み込み", "Load Saved Configuration")}</h5>
+                    </div>
+                    <button className="connection-button btn-connect" onClick={() => loadPlannerExportsList()} style={{ marginBottom: 8 }}>
+                      {tr("一覧を更新", "Refresh List")}
+                    </button>
+                    {plannerExportsList.length === 0 ? (
+                      <span className="connection-hint">{tr("保存済み設定はありません", "No saved configurations")}</span>
+                    ) : (
+                      <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid #ddd", borderRadius: "4px", padding: "4px" }}>
+                        {plannerExportsList.map((file) => (
+                          <div
+                            key={`planner-export-${file.fileName}`}
+                            style={{
+                              padding: "4px 6px",
+                              marginBottom: "2px",
+                              backgroundColor: plannerSelectedExportPath === file.relativePath ? "#e0f7ff" : "#f5f5f5",
+                              border: "1px solid #ccc",
+                              borderRadius: "3px",
+                              cursor: "pointer",
+                              fontSize: "0.9em",
+                            }}
+                            onClick={() => setPlannerSelectedExportPath(file.relativePath)}
+                          >
+                            <div style={{ fontWeight: "bold" }}>{file.fileName}</div>
+                            <div style={{ fontSize: "0.85em", color: "#666" }}>
+                              {new Date(file.timestamp).toLocaleString()} ({(file.size / 1024).toFixed(1)} KB)
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {plannerSelectedExportPath && (
+                      <button
+                        className="connection-button btn-connect"
+                        onClick={() => loadPlannerExportFile(plannerSelectedExportPath)}
+                        style={{ marginTop: 8, width: "100%" }}
+                      >
+                        {tr("選択したファイルを読み込み", "Load Selected File")}
+                      </button>
+                    )}
+                  </section>
 
                   <section className="planner-state-config-subcard" style={{ marginBottom: 10 }}>
                     <div className="planner-state-config-subheader">

@@ -319,39 +319,61 @@ const buildTimestampForFile = () => {
 
 const saveJsonExportToAppDir = ({ category, exportData }) => {
     const safeCategory = sanitizeSegment(category, "export");
+    const now = new Date();
+    const yyyy = String(now.getFullYear());
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dateFolder = path.join(APP_JS_DIR, `${safeCategory}_exports`, `${yyyy}${mm}`);
+
+    // Create date-based folder structure
+    fs.mkdirSync(dateFolder, { recursive: true });
+
     const stamp = buildTimestampForFile();
     const fileName = `${safeCategory}_${stamp}.json`;
-    const targetPath = path.join(APP_JS_DIR, fileName);
+    const targetPath = path.join(dateFolder, fileName);
     const json = JSON.stringify(exportData, null, 2);
     fs.writeFileSync(targetPath, `${json}\n`, "utf8");
     return {
         fileName,
         filePath: targetPath,
+        relativePath: path.relative(APP_JS_DIR, targetPath),
     };
 };
 
 const findLatestJsonExport = (category) => {
     const safeCategory = sanitizeSegment(category, "export");
-    const prefix = `${safeCategory}_`;
+    const categoryFolder = path.join(APP_JS_DIR, `${safeCategory}_exports`);
 
-    let names = [];
+    if (!fs.existsSync(categoryFolder)) {
+        return null;
+    }
+
+    let allFiles = [];
     try {
-        names = fs.readdirSync(APP_JS_DIR);
+        const dateFolders = fs.readdirSync(categoryFolder).sort((a, b) => b.localeCompare(a));
+        for (const dateFolder of dateFolders) {
+            const dateDir = path.join(categoryFolder, dateFolder);
+            if (!fs.statSync(dateDir).isDirectory()) continue;
+
+            const files = fs.readdirSync(dateDir);
+            for (const file of files) {
+                if (file.endsWith(".json")) {
+                    allFiles.push(path.join(dateDir, file));
+                }
+            }
+            if (allFiles.length > 0) break; // Found files in the latest date folder
+        }
     } catch (error) {
         return null;
     }
 
-    const candidates = names
-        .filter((name) => name.startsWith(prefix) && name.endsWith(".json"))
-        .sort((a, b) => b.localeCompare(a));
+    allFiles.sort((a, b) => b.localeCompare(a));
 
-    for (const name of candidates) {
-        const filePath = path.join(APP_JS_DIR, name);
+    for (const filePath of allFiles) {
         try {
             const text = fs.readFileSync(filePath, "utf8");
             const parsed = JSON.parse(text);
             return {
-                fileName: name,
+                fileName: path.basename(filePath),
                 filePath,
                 data: parsed,
             };
@@ -499,6 +521,106 @@ const server = http.createServer((req, res) => {
         });
         return;
     }
+
+    if (req.method === "GET" && url.pathname === "/api/json-exports/list") {
+        const category = url.searchParams.get("category");
+        if (!category) {
+            jsonResponse(res, 400, { message: "category is required" });
+            return;
+        }
+
+        const safeCategory = sanitizeSegment(category, "export");
+        const categoryFolder = path.join(APP_JS_DIR, `${safeCategory}_exports`);
+
+        if (!fs.existsSync(categoryFolder)) {
+            jsonResponse(res, 200, {
+                category,
+                files: [],
+                message: "no exports found for this category",
+            });
+            return;
+        }
+
+        try {
+            const files = [];
+            const dateFolders = fs.readdirSync(categoryFolder).sort((a, b) => b.localeCompare(a));
+            for (const dateFolder of dateFolders) {
+                const dateDir = path.join(categoryFolder, dateFolder);
+                if (!fs.statSync(dateDir).isDirectory()) continue;
+
+                const fileNames = fs.readdirSync(dateDir)
+                    .filter((f) => f.endsWith(".json"))
+                    .sort((a, b) => b.localeCompare(a));
+
+                for (const fileName of fileNames) {
+                    const filePath = path.join(dateDir, fileName);
+                    const stat = fs.statSync(filePath);
+                    files.push({
+                        fileName,
+                        dateFolder,
+                        timestamp: stat.mtime.toISOString(),
+                        size: stat.size,
+                        relativePath: path.relative(APP_JS_DIR, filePath),
+                    });
+                }
+            }
+            jsonResponse(res, 200, {
+                category,
+                files,
+                count: files.length,
+            });
+        } catch (error) {
+            jsonResponse(res, 500, {
+                category,
+                message: "failed to list exports",
+                error: String(error?.message || error),
+            });
+        }
+        return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/json-exports/get") {
+        const category = url.searchParams.get("category");
+        const relativePath = url.searchParams.get("path");
+        if (!category || !relativePath) {
+            jsonResponse(res, 400, { message: "category and path are required" });
+            return;
+        }
+
+        try {
+            const safeCategory = sanitizeSegment(category, "export");
+            const filePath = path.join(APP_JS_DIR, `${safeCategory}_exports`, relativePath);
+            const realPath = path.resolve(filePath);
+            const basePath = path.resolve(path.join(APP_JS_DIR, `${safeCategory}_exports`));
+
+            // Security check: ensure path is within the category folder
+            if (!realPath.startsWith(basePath)) {
+                jsonResponse(res, 403, { message: "access denied" });
+                return;
+            }
+
+            if (!fs.existsSync(realPath)) {
+                jsonResponse(res, 404, { message: "file not found", path: relativePath });
+                return;
+            }
+
+            const text = fs.readFileSync(realPath, "utf8");
+            const parsed = JSON.parse(text);
+            jsonResponse(res, 200, {
+                found: true,
+                category,
+                fileName: path.basename(realPath),
+                data: parsed,
+            });
+        } catch (error) {
+            jsonResponse(res, 500, {
+                message: "failed to read export file",
+                error: String(error?.message || error),
+            });
+        }
+        return;
+    }
+
 
     jsonResponse(res, 404, { message: "not found" });
 });
