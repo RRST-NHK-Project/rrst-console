@@ -330,6 +330,39 @@ const saveJsonExportToAppDir = ({ category, exportData }) => {
     };
 };
 
+const findLatestJsonExport = (category) => {
+    const safeCategory = sanitizeSegment(category, "export");
+    const prefix = `${safeCategory}_`;
+
+    let names = [];
+    try {
+        names = fs.readdirSync(APP_JS_DIR);
+    } catch (error) {
+        return null;
+    }
+
+    const candidates = names
+        .filter((name) => name.startsWith(prefix) && name.endsWith(".json"))
+        .sort((a, b) => b.localeCompare(a));
+
+    for (const name of candidates) {
+        const filePath = path.join(APP_JS_DIR, name);
+        try {
+            const text = fs.readFileSync(filePath, "utf8");
+            const parsed = JSON.parse(text);
+            return {
+                fileName: name,
+                filePath,
+                data: parsed,
+            };
+        } catch (error) {
+            // Ignore broken json and keep scanning older files.
+        }
+    }
+
+    return null;
+};
+
 const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -437,6 +470,33 @@ const server = http.createServer((req, res) => {
                     error: String(error?.message || error),
                 });
             });
+        return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/json-exports/latest") {
+        const category = url.searchParams.get("category");
+        if (!category) {
+            jsonResponse(res, 400, { message: "category is required" });
+            return;
+        }
+
+        const latest = findLatestJsonExport(category);
+        if (!latest) {
+            jsonResponse(res, 404, {
+                found: false,
+                message: "latest json export not found",
+                category,
+            });
+            return;
+        }
+
+        jsonResponse(res, 200, {
+            found: true,
+            category,
+            fileName: latest.fileName,
+            filePath: latest.filePath,
+            data: latest.data,
+        });
         return;
     }
 

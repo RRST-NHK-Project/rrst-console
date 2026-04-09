@@ -67,19 +67,9 @@ const PLANNER_STATE_LABELS = {
   3: { ja: "スタッフ組み立て", en: "Staff Assembly" },
   4: { ja: "ラック移動", en: "Rack Move" },
   5: { ja: "スタッフハンドトリガー", en: "Staff Hand Trigger" },
-  6: { ja: "状態1", en: "State 1" },
-  7: { ja: "状態2", en: "State 2" },
-  8: { ja: "状態3", en: "State 3" },
-  9: { ja: "状態4", en: "State 4" },
-  10: { ja: "状態5", en: "State 5" },
-  11: { ja: "状態6", en: "State 6" },
-  12: { ja: "状態7", en: "State 7" },
-  13: { ja: "状態8", en: "State 8" },
-  14: { ja: "状態9", en: "State 9" },
-  15: { ja: "状態10", en: "State 10" },
 };
 
-const PLANNER_STATE_CODES = [0, 4, 5, 3, 1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const BUILTIN_PLANNER_STATE_CODES = [0, 4, 5, 3, 1, 2];
 
 const DRIVE_MODE_LABELS = {
   0: { ja: "手動", en: "Manual" },
@@ -98,7 +88,11 @@ const PLANNER_MODE_LABELS = {
   1: { ja: "自動遷移", en: "Auto" },
 };
 
-const getPlannerStateLabel = (code, language) => {
+const getPlannerStateLabel = (code, language, customStateLabelMap = null) => {
+  const customEntry = customStateLabelMap ? customStateLabelMap[code] : null;
+  if (customEntry) {
+    return language === "ja" ? customEntry.ja : customEntry.en;
+  }
   const entry = PLANNER_STATE_LABELS[code];
   return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "状態" : "State"} ${code}`;
 };
@@ -118,9 +112,9 @@ const getDriveModeLabel = (code, language) => {
   return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "モード" : "Mode"} ${code}`;
 };
 
-const createPlannerStatePoseConfig = () =>
+const createPlannerStatePoseConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) =>
   Object.fromEntries(
-    PLANNER_STATE_CODES.map((stateCode) => [
+    stateCodes.map((stateCode) => [
       stateCode,
       {
         enabled: false,
@@ -131,9 +125,9 @@ const createPlannerStatePoseConfig = () =>
     ])
   );
 
-const createPlannerStateModeConfig = () =>
+const createPlannerStateModeConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) =>
   Object.fromEntries(
-    PLANNER_STATE_CODES.map((stateCode) => [
+    stateCodes.map((stateCode) => [
       stateCode,
       {
         enabled: false,
@@ -142,9 +136,9 @@ const createPlannerStateModeConfig = () =>
     ])
   );
 
-const createPlannerStateOdomResetConfig = () =>
+const createPlannerStateOdomResetConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) =>
   Object.fromEntries(
-    PLANNER_STATE_CODES.map((stateCode) => [
+    stateCodes.map((stateCode) => [
       stateCode,
       {
         enabled: false,
@@ -305,7 +299,11 @@ function App() {
   const [plannerCellInput, setPlannerCellInput] = useState("0");
   const [plannerFieldRotationDeg, setPlannerFieldRotationDeg] = useState(180);
   const [plannerAutoSendEnabled, setPlannerAutoSendEnabled] = useState(true);
-  const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...PLANNER_STATE_CODES]);
+  const [plannerCustomStates, setPlannerCustomStates] = useState([]);
+  const [plannerNewStateCodeInput, setPlannerNewStateCodeInput] = useState("");
+  const [plannerNewStateJaInput, setPlannerNewStateJaInput] = useState("");
+  const [plannerNewStateEnInput, setPlannerNewStateEnInput] = useState("");
+  const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...BUILTIN_PLANNER_STATE_CODES]);
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
   const [plannerStateOdomResetConfig, setPlannerStateOdomResetConfig] = useState(() => createPlannerStateOdomResetConfig());
@@ -405,6 +403,21 @@ function App() {
   const arucoDetectedIdRef = useRef(null);
 
   const backendBaseUrl = `${window.location.protocol}//${window.location.hostname}:3031`;
+
+  const plannerCustomStateLabelMap = Object.fromEntries(
+    plannerCustomStates.map((state) => [
+      state.code,
+      { ja: state.labelJa, en: state.labelEn },
+    ])
+  );
+
+  const plannerAllStateCodes = Array.from(
+    new Set([
+      ...BUILTIN_PLANNER_STATE_CODES,
+      ...plannerCustomStates.map((state) => state.code),
+      ...plannerStateSequence,
+    ])
+  );
 
   const rosUrl = `${wsScheme}://${rosEndpoint.host}:${rosEndpoint.port}`;
   const tr = (jaText, enText) => getLocalizedText(language, jaText, enText);
@@ -756,15 +769,182 @@ function App() {
   };
 
   const resetPlannerStateSequence = () => {
-    setPlannerStateSequence([...PLANNER_STATE_CODES]);
+    setPlannerStateSequence([
+      ...BUILTIN_PLANNER_STATE_CODES,
+      ...plannerCustomStates.map((state) => state.code),
+    ]);
+  };
+
+  const addPlannerCustomState = () => {
+    const code = Number.parseInt(plannerNewStateCodeInput, 10);
+    const labelJa = plannerNewStateJaInput.trim();
+    const labelEn = plannerNewStateEnInput.trim();
+
+    if (!Number.isFinite(code) || code < 6) {
+      setPlannerStatusText(tr("状態コードは 6 以上の整数を指定してください", "State code must be an integer >= 6"));
+      return;
+    }
+
+    if (BUILTIN_PLANNER_STATE_CODES.includes(code) || plannerCustomStates.some((state) => state.code === code)) {
+      setPlannerStatusText(tr(`状態コード ${code} は既に存在します`, `State code ${code} already exists`));
+      return;
+    }
+
+    if (!labelJa || !labelEn) {
+      setPlannerStatusText(tr("日本語名と英語名を入力してください", "Please enter both Japanese and English labels"));
+      return;
+    }
+
+    const nextCustomStates = [...plannerCustomStates, { code, labelJa, labelEn }].sort((a, b) => a.code - b.code);
+    setPlannerCustomStates(nextCustomStates);
+    setPlannerStateSequence((prev) => (prev.includes(code) ? prev : [...prev, code]));
+    setPlannerStatePoseConfig((prev) => ({
+      ...prev,
+      [code]: { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" },
+    }));
+    setPlannerStateModeConfig((prev) => ({
+      ...prev,
+      [code]: { enabled: false, modeCode: 1 },
+    }));
+    setPlannerStateOdomResetConfig((prev) => ({
+      ...prev,
+      [code]: { enabled: false },
+    }));
+    setPlannerNewStateCodeInput("");
+    setPlannerNewStateJaInput("");
+    setPlannerNewStateEnInput("");
+    setPlannerStatusText(tr(`状態を追加しました: ${code}`, `State added: ${code}`));
+  };
+
+  const removePlannerCustomState = (code) => {
+    setPlannerCustomStates((prev) => prev.filter((state) => state.code !== code));
+    setPlannerStateSequence((prev) => prev.filter((stateCode) => stateCode !== code));
+    setPlannerStatePoseConfig((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    setPlannerStateModeConfig((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    setPlannerStateOdomResetConfig((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    setPlannerStatusText(tr(`状態を削除しました: ${code}`, `State removed: ${code}`));
+  };
+
+  const applyPlannerStateConfigData = (parsed, { source = "import" } = {}) => {
+    const importedCustomStatesRaw = Array.isArray(parsed?.customStates) ? parsed.customStates : [];
+    const normalizedCustomStates = [];
+    importedCustomStatesRaw.forEach((item) => {
+      const code = Number.parseInt(item?.code, 10);
+      if (!Number.isFinite(code) || code < 6) {
+        return;
+      }
+      if (BUILTIN_PLANNER_STATE_CODES.includes(code)) {
+        return;
+      }
+      if (normalizedCustomStates.some((state) => state.code === code)) {
+        return;
+      }
+      const labelJa = String(item?.labelJa || item?.ja || `状態 ${code}`).trim();
+      const labelEn = String(item?.labelEn || item?.en || `State ${code}`).trim();
+      normalizedCustomStates.push({
+        code,
+        labelJa: labelJa || `状態 ${code}`,
+        labelEn: labelEn || `State ${code}`,
+      });
+    });
+
+    normalizedCustomStates.sort((a, b) => a.code - b.code);
+    const validCodes = Array.from(new Set([
+      ...BUILTIN_PLANNER_STATE_CODES,
+      ...normalizedCustomStates.map((state) => state.code),
+    ]));
+    const validStateSet = new Set(validCodes);
+
+    const rawSequence = Array.isArray(parsed?.stateSequence) ? parsed.stateSequence : [];
+    const normalizedSequence = [];
+    rawSequence.forEach((value) => {
+      const code = Number(value);
+      if (!Number.isFinite(code) || !validStateSet.has(code)) {
+        return;
+      }
+      if (!normalizedSequence.includes(code)) {
+        normalizedSequence.push(code);
+      }
+    });
+    validCodes.forEach((code) => {
+      if (!normalizedSequence.includes(code)) {
+        normalizedSequence.push(code);
+      }
+    });
+
+    const defaultPoseConfig = createPlannerStatePoseConfig(validCodes);
+    const defaultModeConfig = createPlannerStateModeConfig(validCodes);
+    const defaultOdomResetConfig = createPlannerStateOdomResetConfig(validCodes);
+    const importedPose = parsed?.statePoseConfig && typeof parsed.statePoseConfig === "object" ? parsed.statePoseConfig : {};
+    const importedMode = parsed?.stateModeConfig && typeof parsed.stateModeConfig === "object" ? parsed.stateModeConfig : {};
+    const importedOdomReset = parsed?.stateOdomResetConfig && typeof parsed.stateOdomResetConfig === "object" ? parsed.stateOdomResetConfig : {};
+
+    const nextPoseConfig = Object.fromEntries(validCodes.map((code) => {
+      const fallback = defaultPoseConfig[code];
+      const raw = importedPose[String(code)] ?? importedPose[code] ?? {};
+      const x = Number(raw?.x);
+      const y = Number(raw?.y);
+      const yaw = Number(raw?.yaw);
+      return [code, {
+        enabled: Boolean(raw?.enabled),
+        x: Number.isFinite(x) ? String(x) : fallback.x,
+        y: Number.isFinite(y) ? String(y) : fallback.y,
+        yaw: Number.isFinite(yaw) ? String(yaw) : fallback.yaw,
+      }];
+    }));
+
+    const nextModeConfig = Object.fromEntries(validCodes.map((code) => {
+      const fallback = defaultModeConfig[code];
+      const raw = importedMode[String(code)] ?? importedMode[code] ?? {};
+      const modeCode = Number(raw?.modeCode);
+      return [code, {
+        enabled: Boolean(raw?.enabled),
+        modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 2 ? modeCode : fallback.modeCode,
+      }];
+    }));
+
+    const nextOdomResetConfig = Object.fromEntries(validCodes.map((code) => {
+      const raw = importedOdomReset[String(code)] ?? importedOdomReset[code] ?? {};
+      return [code, {
+        enabled: Boolean(raw?.enabled),
+      }];
+    }));
+
+    setPlannerCustomStates(normalizedCustomStates);
+    setPlannerStateSequence(normalizedSequence);
+    setPlannerStatePoseConfig(nextPoseConfig);
+    setPlannerStateModeConfig(nextModeConfig);
+    setPlannerStateOdomResetConfig(nextOdomResetConfig);
+    setPlannerStatusText(
+      source === "startup"
+        ? tr(`最新設定を自動読込しました (${normalizedSequence.length} 状態)`, `Loaded latest config automatically (${normalizedSequence.length} states)`)
+        : tr(`状態設定をインポートしました (${normalizedSequence.length} 状態)`, `State configuration imported (${normalizedSequence.length} states)`)
+    );
   };
 
   const exportPlannerStateConfig = async () => {
-    const allStateCodes = Array.from(new Set([...PLANNER_STATE_CODES, ...plannerStateSequence]));
+    const allStateCodes = [...plannerAllStateCodes];
     const exportData = {
       format: "nr26-planner-state-config",
       version: 1,
       exportedAt: new Date().toISOString(),
+      customStates: plannerCustomStates.map((state) => ({
+        code: Number(state.code),
+        labelJa: state.labelJa,
+        labelEn: state.labelEn,
+      })),
       stateSequence: plannerStateSequence.map((code) => Number(code)),
       statePoseConfig: Object.fromEntries(
         allStateCodes.map((code) => {
@@ -842,87 +1022,7 @@ function App() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const validStateSet = new Set(PLANNER_STATE_CODES.map((code) => Number(code)));
-      const rawSequence = Array.isArray(parsed?.stateSequence) ? parsed.stateSequence : [];
-      const normalizedSequence = [];
-
-      rawSequence.forEach((value) => {
-        const code = Number(value);
-        if (!Number.isFinite(code) || !validStateSet.has(code)) {
-          return;
-        }
-        if (!normalizedSequence.includes(code)) {
-          normalizedSequence.push(code);
-        }
-      });
-
-      PLANNER_STATE_CODES.forEach((code) => {
-        if (!normalizedSequence.includes(code)) {
-          normalizedSequence.push(code);
-        }
-      });
-
-      const defaultPoseConfig = createPlannerStatePoseConfig();
-      const defaultModeConfig = createPlannerStateModeConfig();
-      const defaultOdomResetConfig = createPlannerStateOdomResetConfig();
-
-      const importedPose = parsed?.statePoseConfig && typeof parsed.statePoseConfig === "object"
-        ? parsed.statePoseConfig
-        : {};
-      const importedMode = parsed?.stateModeConfig && typeof parsed.stateModeConfig === "object"
-        ? parsed.stateModeConfig
-        : {};
-      const importedOdomReset = parsed?.stateOdomResetConfig && typeof parsed.stateOdomResetConfig === "object"
-        ? parsed.stateOdomResetConfig
-        : {};
-
-      const nextPoseConfig = Object.fromEntries(
-        PLANNER_STATE_CODES.map((code) => {
-          const fallback = defaultPoseConfig[code];
-          const raw = importedPose[String(code)] ?? importedPose[code] ?? {};
-          const x = Number(raw?.x);
-          const y = Number(raw?.y);
-          const yaw = Number(raw?.yaw);
-          return [code, {
-            enabled: Boolean(raw?.enabled),
-            x: Number.isFinite(x) ? String(x) : fallback.x,
-            y: Number.isFinite(y) ? String(y) : fallback.y,
-            yaw: Number.isFinite(yaw) ? String(yaw) : fallback.yaw,
-          }];
-        })
-      );
-
-      const nextModeConfig = Object.fromEntries(
-        PLANNER_STATE_CODES.map((code) => {
-          const fallback = defaultModeConfig[code];
-          const raw = importedMode[String(code)] ?? importedMode[code] ?? {};
-          const modeCode = Number(raw?.modeCode);
-          return [code, {
-            enabled: Boolean(raw?.enabled),
-            modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 2 ? modeCode : fallback.modeCode,
-          }];
-        })
-      );
-
-      const nextOdomResetConfig = Object.fromEntries(
-        PLANNER_STATE_CODES.map((code) => {
-          const raw = importedOdomReset[String(code)] ?? importedOdomReset[code] ?? {};
-          return [code, {
-            enabled: Boolean(raw?.enabled),
-          }];
-        })
-      );
-
-      setPlannerStateSequence(normalizedSequence);
-      setPlannerStatePoseConfig(nextPoseConfig);
-      setPlannerStateModeConfig(nextModeConfig);
-      setPlannerStateOdomResetConfig(nextOdomResetConfig);
-      setPlannerStatusText(
-        tr(
-          `状態設定をインポートしました (${normalizedSequence.length} 状態)`,
-          `State configuration imported (${normalizedSequence.length} states)`
-        )
-      );
+      applyPlannerStateConfigData(parsed, { source: "import" });
     } catch (error) {
       console.error("Failed to import planner state configuration:", error);
       setPlannerStatusText(
@@ -933,6 +1033,26 @@ function App() {
       );
     }
   };
+
+  const loadLatestPlannerStateConfigFromBackend = async () => {
+    try {
+      const response = await fetch(`${backendBaseUrl}/api/json-exports/latest?category=planner_state_config`);
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      if (!payload?.found || !payload?.data) {
+        return;
+      }
+      applyPlannerStateConfigData(payload.data, { source: "startup" });
+    } catch (error) {
+      console.warn("Failed to auto-load latest planner state configuration:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadLatestPlannerStateConfigFromBackend();
+  }, [backendBaseUrl]);
 
   const updatePlannerStatePose = (stateCode, key, value) => {
     setPlannerStatePoseConfig((prev) => ({
@@ -968,7 +1088,7 @@ function App() {
     publishPlannerTransitionMode(nextMode);
   };
 
-  const plannerStateLabel = getPlannerStateLabel(plannerStateCode, language);
+  const plannerStateLabel = getPlannerStateLabel(plannerStateCode, language, plannerCustomStateLabelMap);
   const plannerColorLabel = getPlannerColorLabel(plannerColorCode, language);
   const plannerModeLabel = getPlannerModeLabel(plannerTransitionModeCode, language);
   const plannerLayoutRed = getMffLayout(1);
@@ -4709,7 +4829,7 @@ function App() {
                   </p>
                   <div className="planner-state-buttons">
                     {plannerStateSequence.map((stateCode, index) => {
-                      const label = getPlannerStateLabel(stateCode, language);
+                      const label = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap);
                       const isSelected = plannerStateCode === stateCode;
                       return (
                         <button
@@ -4760,12 +4880,68 @@ function App() {
                     )}
                   </p>
 
+                  <section className="planner-state-config-subcard" style={{ marginBottom: 10 }}>
+                    <div className="planner-state-config-subheader">
+                      <h5>{tr("状態の追加/削除", "Add/Remove States")}</h5>
+                    </div>
+                    <div className="planner-state-config-fields">
+                      <label className="serial-packet-label">
+                        {tr("コード", "Code")}
+                        <input
+                          className="connection-input"
+                          type="number"
+                          min="6"
+                          step="1"
+                          value={plannerNewStateCodeInput}
+                          onChange={(e) => setPlannerNewStateCodeInput(e.target.value)}
+                          placeholder="6+"
+                        />
+                      </label>
+                      <label className="serial-packet-label">
+                        {tr("表示名(日本語)", "Label (JA)")}
+                        <input
+                          className="connection-input"
+                          value={plannerNewStateJaInput}
+                          onChange={(e) => setPlannerNewStateJaInput(e.target.value)}
+                          placeholder={tr("例: 状態A", "e.g. Stage A")}
+                        />
+                      </label>
+                      <label className="serial-packet-label">
+                        {tr("表示名(英語)", "Label (EN)")}
+                        <input
+                          className="connection-input"
+                          value={plannerNewStateEnInput}
+                          onChange={(e) => setPlannerNewStateEnInput(e.target.value)}
+                          placeholder="e.g. State A"
+                        />
+                      </label>
+                    </div>
+                    <button className="connection-button btn-connect planner-state-config-apply" onClick={addPlannerCustomState}>
+                      {tr("状態を追加", "Add State")}
+                    </button>
+                    <div className="planner-state-mode-buttons" style={{ marginTop: 8 }}>
+                      {plannerCustomStates.length === 0 && (
+                        <span className="connection-hint">{tr("追加状態はありません", "No custom states")}</span>
+                      )}
+                      {plannerCustomStates.map((state) => (
+                        <button
+                          key={`planner-custom-state-remove-${state.code}`}
+                          className="serial-clear-button"
+                          onClick={() => removePlannerCustomState(state.code)}
+                          title={`${state.code}: ${state.labelJa} / ${state.labelEn}`}
+                        >
+                          {tr("削除", "Remove")} {state.code}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
                   <div className="planner-state-config-list">
                     {plannerStateSequence.map((stateCode, index) => {
-                      const poseConfig = plannerStatePoseConfig[stateCode] || createPlannerStatePoseConfig()[stateCode];
-                      const modeConfig = plannerStateModeConfig[stateCode] || createPlannerStateModeConfig()[stateCode];
-                      const odomResetConfig = plannerStateOdomResetConfig[stateCode] || createPlannerStateOdomResetConfig()[stateCode];
-                      const stateLabel = getPlannerStateLabel(stateCode, language);
+                      const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" };
+                      const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 1 };
+                      const odomResetConfig = plannerStateOdomResetConfig[stateCode] || { enabled: false };
+                      const stateLabel = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap);
 
                       return (
                         <article key={`planner-state-config-${stateCode}`} className="planner-state-config-card">
