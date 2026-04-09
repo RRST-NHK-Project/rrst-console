@@ -837,6 +837,27 @@ function App() {
     setPlannerStatusText(tr(`状態を削除しました: ${code}`, `State removed: ${code}`));
   };
 
+  const deletePlannerState = (code) => {
+    const stateLabel = getPlannerStateLabel(code, language, plannerCustomStateLabelMap);
+    const isBuiltin = BUILTIN_PLANNER_STATE_CODES.includes(code);
+    const message = isBuiltin
+      ? tr(
+        `デフォルト状態「${stateLabel}」を削除します。シーケンスと設定から削除されます。本当に削除しますか？`,
+        `Delete default state "${stateLabel}"? This will remove it from the sequence and configuration.`
+      )
+      : tr(
+        `カスタム状態「${stateLabel}」を削除します。本当に削除しますか？`,
+        `Delete custom state "${stateLabel}"?`
+      );
+
+    if (!window.confirm(message)) {
+      return;
+    }
+
+    removePlannerCustomState(code);
+  };
+
+
   const applyPlannerStateConfigData = (parsed, { source = "import" } = {}) => {
     const importedCustomStatesRaw = Array.isArray(parsed?.customStates) ? parsed.customStates : [];
     const normalizedCustomStates = [];
@@ -5021,7 +5042,7 @@ function App() {
                         <button
                           key={`planner-custom-state-remove-${state.code}`}
                           className="serial-clear-button"
-                          onClick={() => removePlannerCustomState(state.code)}
+                          onClick={() => deletePlannerState(state.code)}
                           title={`${state.code}: ${state.label}`}
                         >
                           {tr("削除", "Remove")} {state.code}
@@ -5058,6 +5079,13 @@ function App() {
                                 disabled={index === plannerStateSequence.length - 1}
                               >
                                 {tr("下へ", "Down")}
+                              </button>
+                              <button
+                                className="serial-clear-button"
+                                onClick={() => deletePlannerState(stateCode)}
+                                title={tr("この状態を削除します", "Delete this state")}
+                              >
+                                {tr("削除", "Delete")}
                               </button>
                             </div>
                           </div>
