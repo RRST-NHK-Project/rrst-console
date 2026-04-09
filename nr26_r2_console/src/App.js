@@ -30,7 +30,7 @@ const describeActuatorEn = (label) => {
   if (label.startsWith("MD")) return "Motor output (-255 to 255)";
   if (label.startsWith("SERVO")) return "Servo angle (0 to 270)";
   if (label.startsWith("TR")) return "Digital output (0/1)";
-  return "Reserved";
+  return "予備";
 };
 
 const normalizeYawRad = (yawRad) => {
@@ -172,6 +172,8 @@ const MFF_HEIGHT_LEVEL_BY_CELL = {
 
 const getMffHeightLevel = (cellNumber) => MFF_HEIGHT_LEVEL_BY_CELL[cellNumber] || "mm-200";
 
+const PLANNER_FIELD_ROTATION_STEP_DEG = 90;
+
 function App() {
   const rosRef = useRef(null);
   const commandRef = useRef(null);
@@ -277,7 +279,7 @@ function App() {
   const [plannerTransitionModeCode, setPlannerTransitionModeCode] = useState(0);
   const [plannerStatusText, setPlannerStatusText] = useState("state=WAITING color=UNKNOWN cell=0 mode=MANUAL");
   const [plannerCellInput, setPlannerCellInput] = useState("0");
-  const [plannerFieldRotated, setPlannerFieldRotated] = useState(true);
+  const [plannerFieldRotationDeg, setPlannerFieldRotationDeg] = useState(180);
   const [plannerAutoSendEnabled, setPlannerAutoSendEnabled] = useState(true);
   const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...PLANNER_STATE_CODES]);
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
@@ -437,7 +439,7 @@ function App() {
   const applyWallAngleTopicName = () => {
     const nextTopic = wallAngleTopicInput.trim() || "/wall_detection/angle";
     setWallAngleTopicName(nextTopic);
-    console.log("Wall angle topic updated to:", nextTopic);
+    console.log("Wall surface estimation topic updated to:", nextTopic);
   };
 
   const applyCubeDebugTopicName = () => {
@@ -480,7 +482,7 @@ function App() {
     if (page === "sequence") return tr("シーケンス操作", "Sequence");
     if (page === "pose") return tr("座標・姿勢管理", "Pose");
     if (page === "planner") return tr("プランナー", "Planner");
-    if (page === "wall-angle") return tr("壁角度", "Wall Angle");
+    if (page === "wall-angle") return tr("壁面推定", "Wall Surface Estimation");
     if (page === "waypoint") return tr("ウェイポイント", "Waypoints");
     if (page === "teaching") return tr("ティーチング", "Teaching");
     if (page === "simulator") return tr("仮想オドメトリ", "Virtual Odom");
@@ -2215,7 +2217,7 @@ function App() {
     gridYValues.push(Number(value.toFixed(6)));
   }
 
-  // Wall angle graph calculation (Cartesian coordinate system)
+  // Wall surface estimation graph calculation (Cartesian coordinate system)
   const wallGraphWidth = 300;
   const wallGraphHeight = 300;
   const wallGraphPadding = 28;
@@ -2287,7 +2289,7 @@ function App() {
       wallGraphMaxY,
       wallGridStep,
     };
-    console.log("Wall angle graph debug:", debugInfo);
+    console.log("Wall surface estimation graph debug:", debugInfo);
   }
 
   // RANSAC line endpoints calculation in rotated display coordinates
@@ -3028,7 +3030,7 @@ function App() {
         try {
           wallAngleSubRef.current.unsubscribe?.();
         } catch (error) {
-          console.warn("Error unsubscribing wall angle topic:", error);
+          console.warn("Error unsubscribing wall surface estimation topic:", error);
         }
       }
       try {
@@ -3846,11 +3848,11 @@ function App() {
 
           {isPageActive("wall-angle") && (
             <section className="pose-panel">
-              <h2 className="serial-packet-title">{tr("壁角度の図示", "Wall Angle Visualization")}</h2>
+              <h2 className="serial-packet-title">{tr("壁面推定の図示", "Wall Surface Estimation Visualization")}</h2>
               <p className="serial-packet-hint">
                 {tr(
-                  "wall_detection の角度トピックを購読して、現在の壁角度をゲージ表示します。",
-                  "Subscribes to wall_detection angle topic and displays current wall angle as a gauge."
+                  "wall_detection の角度トピックを購読して、現在の壁面推定結果をゲージ表示します。",
+                  "Subscribes to wall_detection angle topic and displays current wall surface estimation as a gauge."
                 )}
               </p>
 
@@ -3874,14 +3876,14 @@ function App() {
               <div className="pose-overview-grid">
                 <section className="pose-graph-card">
                   <div className="pose-graph-title-row">
-                    <h3 className="pose-graph-title">{tr("壁検知グラフ", "Wall Detection Graph")}</h3>
+                    <h3 className="pose-graph-title">{tr("壁面推定グラフ", "Wall Surface Estimation Graph")}</h3>
                     <span className="pose-graph-scale">{tr("単位: m", "Unit: m")}</span>
                   </div>
                   <svg
                     className="wall-angle-graph"
                     viewBox={`0 0 ${wallGraphWidth} ${wallGraphHeight}`}
                     role="img"
-                    aria-label={tr("壁検知グラフ", "Wall detection graph")}
+                    aria-label={tr("壁面推定グラフ", "Wall surface estimation graph")}
                     style={{ backgroundColor: "#ffffff" }}
                   >
                     {/* Background */}
@@ -3992,7 +3994,7 @@ function App() {
                 </section>
 
                 <section className="pose-detail-panel">
-                  <h3 className="pose-detail-title">{tr("壁検知情報", "Wall Detection Info")}</h3>
+                  <h3 className="pose-detail-title">{tr("壁面推定情報", "Wall Surface Estimation Info")}</h3>
                   <div className="pose-current-grid">
                     <div className="pose-current-item">
                       <span>{tr("角度 [rad]", "Angle [rad]")}</span>
@@ -4269,12 +4271,10 @@ function App() {
                       </span>
                       <button
                         type="button"
-                        className={`planner-rotate-button ${plannerFieldRotated ? "planner-rotate-button-active" : ""}`}
-                        onClick={() => setPlannerFieldRotated((prev) => !prev)}
+                        className={`planner-rotate-button ${plannerFieldRotationDeg !== 0 ? "planner-rotate-button-active" : ""}`}
+                        onClick={() => setPlannerFieldRotationDeg((prev) => (prev + PLANNER_FIELD_ROTATION_STEP_DEG) % 360)}
                       >
-                        {plannerFieldRotated
-                          ? tr("図回転: 180°", "Rotation: 180°")
-                          : tr("図回転: 0°", "Rotation: 0°")}
+                        {tr(`図回転: ${plannerFieldRotationDeg}°`, `Rotation: ${plannerFieldRotationDeg}°`)}
                       </button>
                     </div>
                   </div>
@@ -4291,7 +4291,10 @@ function App() {
                     <span className="planner-height-chip planner-height-mm-400">400mm</span>
                   </div>
 
-                  <div className={`planner-field-layout-grid ${isSingleCourtView ? "planner-field-layout-grid-single" : ""} ${plannerFieldRotated ? "planner-field-layout-grid-rotated" : ""}`}>
+                  <div
+                    className={`planner-field-layout-grid ${isSingleCourtView ? "planner-field-layout-grid-single" : ""}`}
+                    style={{ "--planner-field-rotation": `${plannerFieldRotationDeg}deg` }}
+                  >
                     {showRedCourt && <section className="planner-field-court planner-field-court-red">
                       <div className="planner-field-court-title-row">
                         <h4>{tr("赤コート", "Red Court")}</h4>
@@ -4446,17 +4449,17 @@ function App() {
                     {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
                   </p>
                   <div className="planner-state-buttons">
-                    {Object.entries(PLANNER_STATE_LABELS).map(([code, label]) => {
-                      const nextCode = Number(code);
-                      const isSelected = plannerStateCode === nextCode;
+                    {plannerStateSequence.map((stateCode, index) => {
+                      const label = getPlannerStateLabel(stateCode, language);
+                      const isSelected = plannerStateCode === stateCode;
                       return (
                         <button
-                          key={`planner-state-${code}`}
+                          key={`planner-state-${stateCode}`}
                           className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
-                          onClick={() => publishPlannerState(nextCode)}
+                          onClick={() => publishPlannerState(stateCode)}
                           disabled={plannerTransitionModeCode === 1}
                         >
-                          {language === "ja" ? label.ja : label.en}
+                          {index + 1}. {label}
                         </button>
                       );
                     })}
