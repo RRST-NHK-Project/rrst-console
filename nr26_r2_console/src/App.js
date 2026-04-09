@@ -300,7 +300,6 @@ function App() {
   const [plannerFieldRotationDeg, setPlannerFieldRotationDeg] = useState(180);
   const [plannerAutoSendEnabled, setPlannerAutoSendEnabled] = useState(true);
   const [plannerCustomStates, setPlannerCustomStates] = useState([]);
-  const [plannerNewStateCodeInput, setPlannerNewStateCodeInput] = useState("");
   const [plannerNewStateLabelInput, setPlannerNewStateLabelInput] = useState("");
   const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...BUILTIN_PLANNER_STATE_CODES]);
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
@@ -778,25 +777,22 @@ function App() {
   };
 
   const addPlannerCustomState = () => {
-    const code = Number.parseInt(plannerNewStateCodeInput, 10);
     const label = plannerNewStateLabelInput.trim();
-
-    if (!Number.isFinite(code) || code < 6) {
-      setPlannerStatusText(tr("状態コードは 6 以上の整数を指定してください", "State code must be an integer >= 6"));
-      return;
-    }
-
-    if (BUILTIN_PLANNER_STATE_CODES.includes(code) || plannerCustomStates.some((state) => state.code === code)) {
-      setPlannerStatusText(tr(`状態コード ${code} は既に存在します`, `State code ${code} already exists`));
-      return;
-    }
 
     if (!label) {
       setPlannerStatusText(tr("ラベルを入力してください", "Please enter a label"));
       return;
     }
 
-    const nextCustomStates = [...plannerCustomStates, { code, label }].sort((a, b) => a.code - b.code);
+    // Auto-assign code: next available after all existing codes
+    const allExistingCodes = [
+      ...BUILTIN_PLANNER_STATE_CODES,
+      ...plannerCustomStates.map((state) => state.code),
+    ];
+    const maxCode = Math.max(...allExistingCodes);
+    const code = maxCode + 1;
+
+    const nextCustomStates = [...plannerCustomStates, { code, label }];
     setPlannerCustomStates(nextCustomStates);
     setPlannerStateSequence((prev) => (prev.includes(code) ? prev : [...prev, code]));
     setPlannerStatePoseConfig((prev) => ({
@@ -811,9 +807,8 @@ function App() {
       ...prev,
       [code]: { enabled: false },
     }));
-    setPlannerNewStateCodeInput("");
     setPlannerNewStateLabelInput("");
-    setPlannerStatusText(tr(`状態を追加しました: ${code}`, `State added: ${code}`));
+    setPlannerStatusText(tr(`状態「${label}」を追加しました (コード: ${code})`, `State "${label}" added (code: ${code})`));
   };
 
   const removePlannerCustomState = (code) => {
@@ -5075,18 +5070,6 @@ function App() {
                     </div>
                     <div className="planner-state-config-fields">
                       <label className="serial-packet-label">
-                        {tr("コード", "Code")}
-                        <input
-                          className="connection-input"
-                          type="number"
-                          min="6"
-                          step="1"
-                          value={plannerNewStateCodeInput}
-                          onChange={(e) => setPlannerNewStateCodeInput(e.target.value)}
-                          placeholder="6+"
-                        />
-                      </label>
-                      <label className="serial-packet-label">
                         {tr("ラベル", "Label")}
                         <input
                           className="connection-input"
@@ -5108,9 +5091,9 @@ function App() {
                           key={`planner-custom-state-remove-${state.code}`}
                           className="serial-clear-button"
                           onClick={() => deletePlannerState(state.code)}
-                          title={`${state.code}: ${state.label}`}
+                          title={tr(`コード ${state.code}`, `Code ${state.code}`)}
                         >
-                          {tr("削除", "Remove")} {state.code}
+                          {tr("削除", "Remove")} {state.label}
                         </button>
                       ))}
                     </div>
