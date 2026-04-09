@@ -67,9 +67,19 @@ const PLANNER_STATE_LABELS = {
   3: { ja: "スタッフ組み立て", en: "Staff Assembly" },
   4: { ja: "ラック移動", en: "Rack Move" },
   5: { ja: "スタッフハンドトリガー", en: "Staff Hand Trigger" },
+  6: { ja: "状態1", en: "State 1" },
+  7: { ja: "状態2", en: "State 2" },
+  8: { ja: "状態3", en: "State 3" },
+  9: { ja: "状態4", en: "State 4" },
+  10: { ja: "状態5", en: "State 5" },
+  11: { ja: "状態6", en: "State 6" },
+  12: { ja: "状態7", en: "State 7" },
+  13: { ja: "状態8", en: "State 8" },
+  14: { ja: "状態9", en: "State 9" },
+  15: { ja: "状態10", en: "State 10" },
 };
 
-const PLANNER_STATE_CODES = [0, 4, 5, 3, 1, 2];
+const PLANNER_STATE_CODES = [0, 4, 5, 3, 1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 const DRIVE_MODE_LABELS = {
   0: { ja: "手動", en: "Manual" },

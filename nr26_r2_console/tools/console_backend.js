@@ -5,6 +5,7 @@ const path = require("path");
 
 const BACKEND_PORT = Number.parseInt(process.env.CONSOLE_BACKEND_PORT || "3031", 10);
 const CONSOLE_DIR = path.resolve(__dirname, "..");
+const APP_JS_DIR = path.resolve(CONSOLE_DIR, "src");
 const SRC_DIR = path.resolve(CONSOLE_DIR, "..");
 const WS_DIR = path.resolve(SRC_DIR, "..");
 const SERIAL_LOG_PATH = "/tmp/r2_console_serial_bridge.log";
@@ -275,6 +276,60 @@ const forceShutdownBackend = () => {
     }, 200);
 };
 
+const readJsonBody = (req) => new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => {
+        chunks.push(chunk);
+    });
+    req.on("end", () => {
+        try {
+            const raw = Buffer.concat(chunks).toString("utf8");
+            if (!raw) {
+                resolve({});
+                return;
+            }
+            resolve(JSON.parse(raw));
+        } catch (error) {
+            reject(error);
+        }
+    });
+    req.on("error", (error) => reject(error));
+});
+
+const sanitizeSegment = (text, fallback) => {
+    const cleaned = String(text || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    return cleaned || fallback;
+};
+
+const buildTimestampForFile = () => {
+    const now = new Date();
+    const yyyy = String(now.getFullYear());
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const min = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    const ms = String(now.getMilliseconds()).padStart(3, "0");
+    return `${yyyy}${mm}${dd}_${hh}${min}${ss}_${ms}`;
+};
+
+const saveJsonExportToAppDir = ({ category, exportData }) => {
+    const safeCategory = sanitizeSegment(category, "export");
+    const stamp = buildTimestampForFile();
+    const fileName = `${safeCategory}_${stamp}.json`;
+    const targetPath = path.join(APP_JS_DIR, fileName);
+    const json = JSON.stringify(exportData, null, 2);
+    fs.writeFileSync(targetPath, `${json}\n`, "utf8");
+    return {
+        fileName,
+        filePath: targetPath,
+    };
+};
+
 const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -338,6 +393,50 @@ const server = http.createServer((req, res) => {
             message: "console backend を強制シャットダウンします",
         });
         forceShutdownBackend();
+        return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/json-exports/save") {
+        readJsonBody(req)
+            .then((body) => {
+                if (!body || typeof body !== "object") {
+                    jsonResponse(res, 400, { message: "invalid request body" });
+                    return;
+                }
+
+                const category = body.category;
+                const exportData = body.data;
+                if (!category || typeof category !== "string") {
+                    jsonResponse(res, 400, { message: "category is required" });
+                    return;
+                }
+                if (exportData === undefined) {
+                    jsonResponse(res, 400, { message: "data is required" });
+                    return;
+                }
+
+                try {
+                    const saved = saveJsonExportToAppDir({ category, exportData });
+                    jsonResponse(res, 200, {
+                        saved: true,
+                        directory: APP_JS_DIR,
+                        fileName: saved.fileName,
+                        filePath: saved.filePath,
+                    });
+                } catch (error) {
+                    jsonResponse(res, 500, {
+                        saved: false,
+                        message: "json export save failed",
+                        error: String(error?.message || error),
+                    });
+                }
+            })
+            .catch((error) => {
+                jsonResponse(res, 400, {
+                    message: "invalid json body",
+                    error: String(error?.message || error),
+                });
+            });
         return;
     }
 
