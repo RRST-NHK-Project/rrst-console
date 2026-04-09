@@ -5082,21 +5082,6 @@ function App() {
                     <button className="connection-button btn-connect planner-state-config-apply" onClick={addPlannerCustomState}>
                       {tr("状態を追加", "Add State")}
                     </button>
-                    <div className="planner-state-mode-buttons" style={{ marginTop: 8 }}>
-                      {plannerCustomStates.length === 0 && (
-                        <span className="connection-hint">{tr("追加状態はありません", "No custom states")}</span>
-                      )}
-                      {plannerCustomStates.map((state) => (
-                        <button
-                          key={`planner-custom-state-remove-${state.code}`}
-                          className="serial-clear-button"
-                          onClick={() => deletePlannerState(state.code)}
-                          title={tr(`コード ${state.code}`, `Code ${state.code}`)}
-                        >
-                          {tr("削除", "Remove")} {state.label}
-                        </button>
-                      ))}
-                    </div>
                   </section>
 
                   <div className="planner-state-config-list">
