@@ -89,9 +89,9 @@ const PLANNER_MODE_LABELS = {
 };
 
 const getPlannerStateLabel = (code, language, customStateLabelMap = null) => {
-  const customEntry = customStateLabelMap ? customStateLabelMap[code] : null;
-  if (customEntry) {
-    return language === "ja" ? customEntry.ja : customEntry.en;
+  const customLabel = customStateLabelMap ? customStateLabelMap[code] : null;
+  if (customLabel) {
+    return customLabel;
   }
   const entry = PLANNER_STATE_LABELS[code];
   return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "状態" : "State"} ${code}`;
@@ -301,8 +301,7 @@ function App() {
   const [plannerAutoSendEnabled, setPlannerAutoSendEnabled] = useState(true);
   const [plannerCustomStates, setPlannerCustomStates] = useState([]);
   const [plannerNewStateCodeInput, setPlannerNewStateCodeInput] = useState("");
-  const [plannerNewStateJaInput, setPlannerNewStateJaInput] = useState("");
-  const [plannerNewStateEnInput, setPlannerNewStateEnInput] = useState("");
+  const [plannerNewStateLabelInput, setPlannerNewStateLabelInput] = useState("");
   const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...BUILTIN_PLANNER_STATE_CODES]);
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
@@ -410,7 +409,7 @@ function App() {
   const plannerCustomStateLabelMap = Object.fromEntries(
     plannerCustomStates.map((state) => [
       state.code,
-      { ja: state.labelJa, en: state.labelEn },
+      state.label,
     ])
   );
 
@@ -780,8 +779,7 @@ function App() {
 
   const addPlannerCustomState = () => {
     const code = Number.parseInt(plannerNewStateCodeInput, 10);
-    const labelJa = plannerNewStateJaInput.trim();
-    const labelEn = plannerNewStateEnInput.trim();
+    const label = plannerNewStateLabelInput.trim();
 
     if (!Number.isFinite(code) || code < 6) {
       setPlannerStatusText(tr("状態コードは 6 以上の整数を指定してください", "State code must be an integer >= 6"));
@@ -793,12 +791,12 @@ function App() {
       return;
     }
 
-    if (!labelJa || !labelEn) {
-      setPlannerStatusText(tr("日本語名と英語名を入力してください", "Please enter both Japanese and English labels"));
+    if (!label) {
+      setPlannerStatusText(tr("ラベルを入力してください", "Please enter a label"));
       return;
     }
 
-    const nextCustomStates = [...plannerCustomStates, { code, labelJa, labelEn }].sort((a, b) => a.code - b.code);
+    const nextCustomStates = [...plannerCustomStates, { code, label }].sort((a, b) => a.code - b.code);
     setPlannerCustomStates(nextCustomStates);
     setPlannerStateSequence((prev) => (prev.includes(code) ? prev : [...prev, code]));
     setPlannerStatePoseConfig((prev) => ({
@@ -814,8 +812,7 @@ function App() {
       [code]: { enabled: false },
     }));
     setPlannerNewStateCodeInput("");
-    setPlannerNewStateJaInput("");
-    setPlannerNewStateEnInput("");
+    setPlannerNewStateLabelInput("");
     setPlannerStatusText(tr(`状態を追加しました: ${code}`, `State added: ${code}`));
   };
 
@@ -854,12 +851,10 @@ function App() {
       if (normalizedCustomStates.some((state) => state.code === code)) {
         return;
       }
-      const labelJa = String(item?.labelJa || item?.ja || `状態 ${code}`).trim();
-      const labelEn = String(item?.labelEn || item?.en || `State ${code}`).trim();
+      const label = String(item?.label || item?.labelJa || `状態 ${code}`).trim();
       normalizedCustomStates.push({
         code,
-        labelJa: labelJa || `状態 ${code}`,
-        labelEn: labelEn || `State ${code}`,
+        label: label || `状態 ${code}`,
       });
     });
 
@@ -946,8 +941,7 @@ function App() {
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
-        labelJa: state.labelJa,
-        labelEn: state.labelEn,
+        label: state.label,
       })),
       stateSequence: plannerStateSequence.map((code) => Number(code)),
       statePoseConfig: Object.fromEntries(
@@ -5007,21 +5001,12 @@ function App() {
                         />
                       </label>
                       <label className="serial-packet-label">
-                        {tr("表示名(日本語)", "Label (JA)")}
+                        {tr("ラベル", "Label")}
                         <input
                           className="connection-input"
-                          value={plannerNewStateJaInput}
-                          onChange={(e) => setPlannerNewStateJaInput(e.target.value)}
+                          value={plannerNewStateLabelInput}
+                          onChange={(e) => setPlannerNewStateLabelInput(e.target.value)}
                           placeholder={tr("例: 状態A", "e.g. Stage A")}
-                        />
-                      </label>
-                      <label className="serial-packet-label">
-                        {tr("表示名(英語)", "Label (EN)")}
-                        <input
-                          className="connection-input"
-                          value={plannerNewStateEnInput}
-                          onChange={(e) => setPlannerNewStateEnInput(e.target.value)}
-                          placeholder="e.g. State A"
                         />
                       </label>
                     </div>
@@ -5037,7 +5022,7 @@ function App() {
                           key={`planner-custom-state-remove-${state.code}`}
                           className="serial-clear-button"
                           onClick={() => removePlannerCustomState(state.code)}
-                          title={`${state.code}: ${state.labelJa} / ${state.labelEn}`}
+                          title={`${state.code}: ${state.label}`}
                         >
                           {tr("削除", "Remove")} {state.code}
                         </button>
