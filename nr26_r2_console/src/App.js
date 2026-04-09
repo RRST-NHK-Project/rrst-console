@@ -759,7 +759,7 @@ function App() {
     setPlannerStateSequence([...PLANNER_STATE_CODES]);
   };
 
-  const exportPlannerStateConfig = () => {
+  const exportPlannerStateConfig = async () => {
     const allStateCodes = Array.from(new Set([...PLANNER_STATE_CODES, ...plannerStateSequence]));
     const exportData = {
       format: "nr26-planner-state-config",
@@ -817,6 +817,18 @@ function App() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+
+    const savedResult = await saveJsonExportToAppDirectory("planner_state_config", exportData);
+    const saveSuffix = savedResult.ok
+      ? tr(` / 保存: ${savedResult.fileName}`, ` / saved: ${savedResult.fileName}`)
+      : tr(" / App.jsディレクトリ保存失敗", " / failed to save into App.js directory");
+
+    setPlannerStatusText(
+      tr(
+        `状態設定をエクスポートしました${saveSuffix}`,
+        `State configuration exported${saveSuffix}`
+      )
+    );
   };
 
   const importPlannerStateConfigFromFile = async (event) => {
@@ -1592,6 +1604,35 @@ function App() {
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const saveJsonExportToAppDirectory = async (category, data) => {
+    try {
+      const response = await fetch(`${backendBaseUrl}/api/json-exports/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ category, data }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
+
+      const result = await response.json();
+      return {
+        ok: true,
+        fileName: result?.fileName || "",
+      };
+    } catch (error) {
+      console.error("Failed to save JSON export to App.js directory:", error);
+      return {
+        ok: false,
+        error,
+      };
+    }
+  };
+
   const traceSampleMs = Math.max(50, Math.min(10000, Math.round(parseFloatSafe(traceSampleMsInput, 250))));
   const traceReplayMs = Math.max(50, Math.min(10000, Math.round(parseFloatSafe(traceReplayMsInput, 600))));
 
@@ -1735,7 +1776,7 @@ function App() {
     setTraceInfo(tr("再生開始", "Replay started"));
   };
 
-  const exportTracePoints = () => {
+  const exportTracePoints = async () => {
     if (tracePoints.length === 0) {
       setTraceInfo(tr("エクスポートする記録がありません", "No trace points to export"));
       return;
@@ -1766,10 +1807,15 @@ function App() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
+    const savedResult = await saveJsonExportToAppDirectory("teaching_trace", exportData);
+    const saveSuffix = savedResult.ok
+      ? tr(` / 保存: ${savedResult.fileName}`, ` / saved: ${savedResult.fileName}`)
+      : tr(" / App.jsディレクトリ保存失敗", " / failed to save into App.js directory");
+
     setTraceInfo(
       tr(
-        `記録をエクスポートしました (${tracePoints.length} 点)`,
-        `Trace exported (${tracePoints.length} points)`
+        `記録をエクスポートしました (${tracePoints.length} 点)${saveSuffix}`,
+        `Trace exported (${tracePoints.length} points)${saveSuffix}`
       )
     );
   };
