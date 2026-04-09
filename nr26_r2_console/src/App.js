@@ -1005,6 +1005,79 @@ function App() {
       ),
     };
 
+    try {
+      const savedResult = await saveJsonExportToAppDirectory("planner_state_config", exportData);
+      if (savedResult.ok) {
+        setPlannerConfigIsDirty(false);
+        setPlannerStatusText(
+          tr(
+            `状態設定を保存しました: ${savedResult.fileName}`,
+            `State configuration saved: ${savedResult.fileName}`
+          )
+        );
+        return savedResult;
+      } else {
+        setPlannerStatusText(tr("設定保存に失敗しました", "Failed to save configuration"));
+        return null;
+      }
+    } catch (error) {
+      console.error("Export error:", error);
+      setPlannerStatusText(tr("設定保存に失敗しました", "Failed to save configuration"));
+      return null;
+    }
+  };
+
+  const downloadPlannerStateConfig = async () => {
+    const allStateCodes = [...plannerAllStateCodes];
+    const exportData = {
+      format: "nr26-planner-state-config",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      customStates: plannerCustomStates.map((state) => ({
+        code: Number(state.code),
+        label: state.label,
+      })),
+      stateSequence: plannerStateSequence.map((code) => Number(code)),
+      statePoseConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStatePoseConfig[code] || createPlannerStatePoseConfig()[code] || {
+            enabled: false,
+            x: "0.0",
+            y: "0.0",
+            yaw: "0.0",
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+            x: String(config.x ?? "0.0"),
+            y: String(config.y ?? "0.0"),
+            yaw: String(config.yaw ?? "0.0"),
+          }];
+        })
+      ),
+      stateModeConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStateModeConfig[code] || createPlannerStateModeConfig()[code] || {
+            enabled: false,
+            modeCode: 1,
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+            modeCode: Number(config.modeCode),
+          }];
+        })
+      ),
+      stateOdomResetConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStateOdomResetConfig[code] || createPlannerStateOdomResetConfig()[code] || {
+            enabled: false,
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+          }];
+        })
+      ),
+    };
+
     const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1017,18 +1090,7 @@ function App() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    const savedResult = await saveJsonExportToAppDirectory("planner_state_config", exportData);
-    const saveSuffix = savedResult.ok
-      ? tr(` / 保存: ${savedResult.fileName}`, ` / saved: ${savedResult.fileName}`)
-      : tr(" / App.jsディレクトリ保存失敗", " / failed to save into App.js directory");
-
-    setPlannerStatusText(
-      tr(
-        `状態設定をエクスポートしました${saveSuffix}`,
-        `State configuration exported${saveSuffix}`
-      )
-    );
-    setPlannerConfigIsDirty(false);
+    setPlannerStatusText(tr("状態設定ファイルをダウンロードしました", "Configuration file downloaded"));
   };
 
   const importPlannerStateConfigFromFile = async (event) => {
@@ -4937,6 +4999,9 @@ function App() {
                       </button>
                       <button className="connection-button btn-save" onClick={exportPlannerStateConfig}>
                         {tr("設定をエクスポート", "Export Config")}
+                      </button>
+                      <button className="connection-button btn-neutral" onClick={downloadPlannerStateConfig}>
+                        {tr("ダウンロード", "Download")}
                       </button>
                       <button
                         className="connection-button btn-restore"
