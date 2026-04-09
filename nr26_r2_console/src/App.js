@@ -65,9 +65,11 @@ const PLANNER_STATE_LABELS = {
   1: { ja: "MFF進入", en: "Enter MFF" },
   2: { ja: "MFF離脱", en: "Leave MFF" },
   3: { ja: "スタッフ組み立て", en: "Staff Assembly" },
+  4: { ja: "ラック移動", en: "Rack Move" },
+  5: { ja: "スタッフハンドトリガー", en: "Staff Hand Trigger" },
 };
 
-const PLANNER_STATE_CODES = [0, 3, 1, 2];
+const PLANNER_STATE_CODES = [0, 4, 5, 3, 1, 2];
 
 const DRIVE_MODE_LABELS = {
   0: { ja: "手動", en: "Manual" },
@@ -126,6 +128,16 @@ const createPlannerStateModeConfig = () =>
       {
         enabled: false,
         modeCode: 1,
+      },
+    ])
+  );
+
+const createPlannerStateOdomResetConfig = () =>
+  Object.fromEntries(
+    PLANNER_STATE_CODES.map((stateCode) => [
+      stateCode,
+      {
+        enabled: false,
       },
     ])
   );
@@ -193,6 +205,7 @@ function App() {
   const taskStateSequenceRef = useRef(null);
   const taskStatePoseRef = useRef(null);
   const taskStateModeRef = useRef(null);
+  const taskStateOdomResetRef = useRef(null);
   const taskAutoSendEnabledRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
@@ -212,6 +225,7 @@ function App() {
   const traceRecordTimerRef = useRef(null);
   const traceReplayTimerRef = useRef(null);
   const traceImportInputRef = useRef(null);
+  const plannerConfigImportInputRef = useRef(null);
   const tracePoseRef = useRef({ x: 0, y: 0, yaw: 0 });
   const traceLanguageRef = useRef("ja");
   const defaultRosHost = window.location.hostname || "localhost";
@@ -284,6 +298,7 @@ function App() {
   const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...PLANNER_STATE_CODES]);
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
+  const [plannerStateOdomResetConfig, setPlannerStateOdomResetConfig] = useState(() => createPlannerStateOdomResetConfig());
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -702,6 +717,16 @@ function App() {
     });
   };
 
+  const publishPlannerStateOdomReset = (stateCode) => {
+    if (!taskStateOdomResetRef.current) return;
+    const config = plannerStateOdomResetConfig[stateCode];
+    if (!config) return;
+
+    taskStateOdomResetRef.current.publish({
+      data: [Number(stateCode), config.enabled ? 1 : 0],
+    });
+  };
+
   const movePlannerStateSequence = (stateCode, direction) => {
     setPlannerStateSequence((prevSequence) => {
       const currentIndex = prevSequence.indexOf(stateCode);
@@ -724,6 +749,169 @@ function App() {
     setPlannerStateSequence([...PLANNER_STATE_CODES]);
   };
 
+  const exportPlannerStateConfig = () => {
+    const allStateCodes = Array.from(new Set([...PLANNER_STATE_CODES, ...plannerStateSequence]));
+    const exportData = {
+      format: "nr26-planner-state-config",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      stateSequence: plannerStateSequence.map((code) => Number(code)),
+      statePoseConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStatePoseConfig[code] || createPlannerStatePoseConfig()[code] || {
+            enabled: false,
+            x: "0.0",
+            y: "0.0",
+            yaw: "0.0",
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+            x: String(config.x ?? "0.0"),
+            y: String(config.y ?? "0.0"),
+            yaw: String(config.yaw ?? "0.0"),
+          }];
+        })
+      ),
+      stateModeConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStateModeConfig[code] || createPlannerStateModeConfig()[code] || {
+            enabled: false,
+            modeCode: 1,
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+            modeCode: Number(config.modeCode),
+          }];
+        })
+      ),
+      stateOdomResetConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStateOdomResetConfig[code] || createPlannerStateOdomResetConfig()[code] || {
+            enabled: false,
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+          }];
+        })
+      ),
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.href = url;
+    link.download = `planner_state_config_${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const importPlannerStateConfigFromFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const validStateSet = new Set(PLANNER_STATE_CODES.map((code) => Number(code)));
+      const rawSequence = Array.isArray(parsed?.stateSequence) ? parsed.stateSequence : [];
+      const normalizedSequence = [];
+
+      rawSequence.forEach((value) => {
+        const code = Number(value);
+        if (!Number.isFinite(code) || !validStateSet.has(code)) {
+          return;
+        }
+        if (!normalizedSequence.includes(code)) {
+          normalizedSequence.push(code);
+        }
+      });
+
+      PLANNER_STATE_CODES.forEach((code) => {
+        if (!normalizedSequence.includes(code)) {
+          normalizedSequence.push(code);
+        }
+      });
+
+      const defaultPoseConfig = createPlannerStatePoseConfig();
+      const defaultModeConfig = createPlannerStateModeConfig();
+      const defaultOdomResetConfig = createPlannerStateOdomResetConfig();
+
+      const importedPose = parsed?.statePoseConfig && typeof parsed.statePoseConfig === "object"
+        ? parsed.statePoseConfig
+        : {};
+      const importedMode = parsed?.stateModeConfig && typeof parsed.stateModeConfig === "object"
+        ? parsed.stateModeConfig
+        : {};
+      const importedOdomReset = parsed?.stateOdomResetConfig && typeof parsed.stateOdomResetConfig === "object"
+        ? parsed.stateOdomResetConfig
+        : {};
+
+      const nextPoseConfig = Object.fromEntries(
+        PLANNER_STATE_CODES.map((code) => {
+          const fallback = defaultPoseConfig[code];
+          const raw = importedPose[String(code)] ?? importedPose[code] ?? {};
+          const x = Number(raw?.x);
+          const y = Number(raw?.y);
+          const yaw = Number(raw?.yaw);
+          return [code, {
+            enabled: Boolean(raw?.enabled),
+            x: Number.isFinite(x) ? String(x) : fallback.x,
+            y: Number.isFinite(y) ? String(y) : fallback.y,
+            yaw: Number.isFinite(yaw) ? String(yaw) : fallback.yaw,
+          }];
+        })
+      );
+
+      const nextModeConfig = Object.fromEntries(
+        PLANNER_STATE_CODES.map((code) => {
+          const fallback = defaultModeConfig[code];
+          const raw = importedMode[String(code)] ?? importedMode[code] ?? {};
+          const modeCode = Number(raw?.modeCode);
+          return [code, {
+            enabled: Boolean(raw?.enabled),
+            modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 2 ? modeCode : fallback.modeCode,
+          }];
+        })
+      );
+
+      const nextOdomResetConfig = Object.fromEntries(
+        PLANNER_STATE_CODES.map((code) => {
+          const raw = importedOdomReset[String(code)] ?? importedOdomReset[code] ?? {};
+          return [code, {
+            enabled: Boolean(raw?.enabled),
+          }];
+        })
+      );
+
+      setPlannerStateSequence(normalizedSequence);
+      setPlannerStatePoseConfig(nextPoseConfig);
+      setPlannerStateModeConfig(nextModeConfig);
+      setPlannerStateOdomResetConfig(nextOdomResetConfig);
+      setPlannerStatusText(
+        tr(
+          `状態設定をインポートしました (${normalizedSequence.length} 状態)`,
+          `State configuration imported (${normalizedSequence.length} states)`
+        )
+      );
+    } catch (error) {
+      console.error("Failed to import planner state configuration:", error);
+      setPlannerStatusText(
+        tr(
+          "状態設定のインポートに失敗しました (JSON形式を確認してください)",
+          "Failed to import state configuration (check JSON format)"
+        )
+      );
+    }
+  };
+
   const updatePlannerStatePose = (stateCode, key, value) => {
     setPlannerStatePoseConfig((prev) => ({
       ...prev,
@@ -740,6 +928,15 @@ function App() {
       [stateCode]: {
         enabled: nextModeCode >= 0,
         modeCode: nextModeCode >= 0 ? nextModeCode : prev[stateCode]?.modeCode ?? 1,
+      },
+    }));
+  };
+
+  const updatePlannerStateOdomReset = (stateCode, enabled) => {
+    setPlannerStateOdomResetConfig((prev) => ({
+      ...prev,
+      [stateCode]: {
+        enabled: Boolean(enabled),
       },
     }));
   };
@@ -2903,6 +3100,12 @@ function App() {
       messageType: "std_msgs/msg/Int32MultiArray",
     });
 
+    taskStateOdomResetRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state_odom_reset",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
     taskAutoSendEnabledRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r2/task_auto_send_enabled",
@@ -4476,12 +4679,28 @@ function App() {
                       <button className="serial-clear-button" onClick={resetPlannerStateSequence}>
                         {tr("順序を初期化", "Reset Sequence")}
                       </button>
+                      <button className="connection-button btn-save" onClick={exportPlannerStateConfig}>
+                        {tr("設定をエクスポート", "Export Config")}
+                      </button>
+                      <button
+                        className="connection-button btn-restore"
+                        onClick={() => plannerConfigImportInputRef.current?.click()}
+                      >
+                        {tr("設定をインポート", "Import Config")}
+                      </button>
+                      <input
+                        ref={plannerConfigImportInputRef}
+                        type="file"
+                        accept=".json,application/json"
+                        style={{ display: "none" }}
+                        onChange={importPlannerStateConfigFromFile}
+                      />
                     </div>
                   </div>
                   <p className="connection-hint planner-state-config-hint">
                     {tr(
-                      "順序、状態ごとの目標座標、状態ごとのドライブモードをここでまとめて設定します。未指定の座標やモードは送信しません。",
-                      "Configure the state order, per-state target pose, and per-state drive mode here. Unset pose or mode values will not be sent."
+                      "順序、状態ごとの目標座標、状態ごとのドライブモード、オドメトリリセット有無をここでまとめて設定します。未指定の座標やモードは送信しません。",
+                      "Configure state order, per-state target pose, per-state drive mode, and per-state odometry reset here. Unset pose or mode values will not be sent."
                     )}
                   </p>
 
@@ -4489,6 +4708,7 @@ function App() {
                     {plannerStateSequence.map((stateCode, index) => {
                       const poseConfig = plannerStatePoseConfig[stateCode] || createPlannerStatePoseConfig()[stateCode];
                       const modeConfig = plannerStateModeConfig[stateCode] || createPlannerStateModeConfig()[stateCode];
+                      const odomResetConfig = plannerStateOdomResetConfig[stateCode] || createPlannerStateOdomResetConfig()[stateCode];
                       const stateLabel = getPlannerStateLabel(stateCode, language);
 
                       return (
@@ -4591,6 +4811,27 @@ function App() {
                               </div>
                               <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStateMode(stateCode)}>
                                 {tr("モードを送信", "Send Mode")}
+                              </button>
+                            </section>
+
+                            <section className="planner-state-config-subcard">
+                              <div className="planner-state-config-subheader">
+                                <h5>{tr("オドメトリリセット", "Odometry Reset")}</h5>
+                                <button
+                                  className={`toggle-button ${odomResetConfig.enabled ? "toggle-on" : "toggle-off"}`}
+                                  onClick={() => updatePlannerStateOdomReset(stateCode, !odomResetConfig.enabled)}
+                                >
+                                  {odomResetConfig.enabled ? tr("送信する", "Send") : tr("送信しない", "Off")}
+                                </button>
+                              </div>
+                              <p className="connection-hint">
+                                {tr(
+                                  "この状態へ遷移したときに odom_reset を1回送信します。",
+                                  "Send odom_reset once when transitioning into this state."
+                                )}
+                              </p>
+                              <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStateOdomReset(stateCode)}>
+                                {tr("リセット設定を送信", "Send Reset Setting")}
                               </button>
                             </section>
                           </div>
