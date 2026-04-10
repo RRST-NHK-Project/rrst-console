@@ -433,6 +433,22 @@
   color: var(--text-sub);
 }
 
+.serial-motor-inputs {
+  display: grid;
+  gap: 6px;
+}
+
+.serial-motor-range {
+  width: 100%;
+}
+
+.serial-motor-range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-sub);
+}
+
 .control-toggle-row {
   margin-top: 10px;
   display: grid;

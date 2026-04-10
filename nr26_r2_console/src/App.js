@@ -2314,19 +2314,60 @@ function App() {
     });
   };
 
+  const updateMotorSerialValue = (index, rawValue) => {
+    const parsed = Number.parseInt(rawValue, 10);
+    const safeValue = Number.isFinite(parsed)
+      ? Math.max(-255, Math.min(255, parsed))
+      : 0;
+
+    setSerialValues((prev) => {
+      const next = [...prev];
+      next[index] = safeValue;
+      return next;
+    });
+  };
+
   const renderSerialInputItem = (index) => {
     const label = PACKET_INDEX_LABELS[index] || `CH${index}`;
     const value = serialValues[index] ?? 0;
+    const isMotor = label.startsWith("MD");
     return (
       <label className="serial-item" key={`${label}-${index}`}>
         <span className="serial-item-name">[{index}] {label}</span>
         <span className="serial-item-desc">{tr(describeActuatorJa(label), describeActuatorEn(label))}</span>
-        <input
-          className="connection-input"
-          type="number"
-          value={value}
-          onChange={(e) => updateSerialValue(index, e.target.value)}
-        />
+        {isMotor ? (
+          <div className="serial-motor-inputs">
+            <input
+              className="serial-motor-range"
+              type="range"
+              min="-255"
+              max="255"
+              step="1"
+              value={Math.max(-255, Math.min(255, value))}
+              onChange={(e) => updateMotorSerialValue(index, e.target.value)}
+            />
+            <div className="serial-motor-range-labels">
+              <span>-255</span>
+              <span>0</span>
+              <span>255</span>
+            </div>
+            <input
+              className="connection-input"
+              type="number"
+              min="-255"
+              max="255"
+              value={Math.max(-255, Math.min(255, value))}
+              onChange={(e) => updateMotorSerialValue(index, e.target.value)}
+            />
+          </div>
+        ) : (
+          <input
+            className="connection-input"
+            type="number"
+            value={value}
+            onChange={(e) => updateSerialValue(index, e.target.value)}
+          />
+        )}
       </label>
     );
   };
