@@ -152,6 +152,7 @@ const MFF_LAYOUT_RED = [
   [4, 5, 6],
   [7, 8, 9],
   [10, 11, 12],
+  [16, 17, 18],   // 1X, 2X, 3X (exit side)
 ];
 
 const MFF_LAYOUT_BLUE = [
@@ -160,6 +161,7 @@ const MFF_LAYOUT_BLUE = [
   [6, 5, 4],
   [9, 8, 7],
   [12, 11, 10],
+  [18, 17, 16],   // 3X, 2X, 1X (exit side)
 ];
 
 const getMffLayout = (colorCode) => {
@@ -173,7 +175,7 @@ const getMffLayout = (colorCode) => {
 };
 
 const parseMffPathInput = (rawInput) => {
-  const mapping = { "1E": 13, "2E": 14, "3E": 15 };
+  const mapping = { "1E": 13, "2E": 14, "3E": 15, "1X": 16, "2X": 17, "3X": 18 };
   return String(rawInput || "")
     .split(",")
     .map((value) => {
@@ -181,7 +183,7 @@ const parseMffPathInput = (rawInput) => {
       if (mapping[trimmed]) return mapping[trimmed];
       return Number.parseInt(trimmed, 10);
     })
-    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 15);
+    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 18);
 };
 
 // Height groups (mm) based on the shared field diagram.
@@ -201,6 +203,9 @@ const MFF_HEIGHT_LEVEL_BY_CELL = {
   13: "mm-0",  // 1E - entrance, flat
   14: "mm-0",  // 2E - entrance, flat
   15: "mm-0",  // 3E - entrance, flat
+  16: "mm-0",  // 1X - exit, flat
+  17: "mm-0",  // 2X - exit, flat
+  18: "mm-0",  // 3X - exit, flat
 };
 
 const getMffHeightLevel = (cellNumber) => MFF_HEIGHT_LEVEL_BY_CELL[cellNumber] || "mm-200";
@@ -210,6 +215,9 @@ const getMffCellLabel = (cellNumber, language = "ja") => {
   if (cellNumber === 13) return "1E";
   if (cellNumber === 14) return "2E";
   if (cellNumber === 15) return "3E";
+  if (cellNumber === 16) return "1X";
+  if (cellNumber === 17) return "2X";
+  if (cellNumber === 18) return "3X";
   return String(cellNumber);
 };
 
@@ -4924,12 +4932,12 @@ function App() {
                           if (cell === 0) return null;  // Skip empty cells
                           const isCurrent = plannerColorCode === 1 && plannerCellCode === cell;
                           const heightLevel = getMffHeightLevel(cell);
-                          const isEntrance = cell >= 13 && cell <= 15;
+                          const isGate = cell >= 13 && cell <= 18;
                           return (
                             <button
                               key={`mff-red-${cell}`}
                               type="button"
-                              className={`planner-field-cell planner-field-cell-red planner-field-height-${heightLevel} ${isEntrance ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
+                              className={`planner-field-cell planner-field-cell-red planner-field-height-${heightLevel} ${isGate ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
                               onClick={() => {
                                 setPlannerColorCode(1);
                                 setPlannerCellInput(String(cell));
@@ -4956,12 +4964,12 @@ function App() {
                           if (cell === 0) return null;  // Skip empty cells
                           const isCurrent = plannerColorCode === 0 && plannerCellCode === cell;
                           const heightLevel = getMffHeightLevel(cell);
-                          const isEntrance = cell >= 13 && cell <= 15;
+                          const isGate = cell >= 13 && cell <= 18;
                           return (
                             <button
                               key={`mff-blue-${cell}`}
                               type="button"
-                              className={`planner-field-cell planner-field-cell-blue planner-field-height-${heightLevel} ${isEntrance ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
+                              className={`planner-field-cell planner-field-cell-blue planner-field-height-${heightLevel} ${isGate ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
                               onClick={() => {
                                 setPlannerColorCode(0);
                                 setPlannerCellInput(String(cell));
@@ -5050,7 +5058,7 @@ function App() {
                             className="connection-input"
                             type="number"
                             min="0"
-                            max="12"
+                            max="18"
                             value={plannerCellInput}
                             onChange={(e) => setPlannerCellInput(e.target.value)}
                           />
