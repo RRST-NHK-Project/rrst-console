@@ -147,6 +147,7 @@ const createPlannerStateOdomResetConfig = (stateCodes = BUILTIN_PLANNER_STATE_CO
   );
 
 const MFF_LAYOUT_RED = [
+  [13, 14, 15],   // 1E, 2E, 3E (entrance side)
   [1, 2, 3],
   [4, 5, 6],
   [7, 8, 9],
@@ -154,6 +155,7 @@ const MFF_LAYOUT_RED = [
 ];
 
 const MFF_LAYOUT_BLUE = [
+  [15, 14, 13],   // 3E, 2E, 1E (entrance side)
   [3, 2, 1],
   [6, 5, 4],
   [9, 8, 7],
@@ -170,6 +172,18 @@ const getMffLayout = (colorCode) => {
   return MFF_LAYOUT_RED;
 };
 
+const parseMffPathInput = (rawInput) => {
+  const mapping = { "1E": 13, "2E": 14, "3E": 15 };
+  return String(rawInput || "")
+    .split(",")
+    .map((value) => {
+      const trimmed = value.trim().toUpperCase();
+      if (mapping[trimmed]) return mapping[trimmed];
+      return Number.parseInt(trimmed, 10);
+    })
+    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 15);
+};
+
 // Height groups (mm) based on the shared field diagram.
 const MFF_HEIGHT_LEVEL_BY_CELL = {
   1: "mm-200",
@@ -184,9 +198,20 @@ const MFF_HEIGHT_LEVEL_BY_CELL = {
   10: "mm-0",
   11: "mm-200",
   12: "mm-0",
+  13: "mm-0",  // 1E - entrance, flat
+  14: "mm-0",  // 2E - entrance, flat
+  15: "mm-0",  // 3E - entrance, flat
 };
 
 const getMffHeightLevel = (cellNumber) => MFF_HEIGHT_LEVEL_BY_CELL[cellNumber] || "mm-200";
+
+const getMffCellLabel = (cellNumber, language = "ja") => {
+  if (cellNumber === 0) return "";
+  if (cellNumber === 13) return "1E";
+  if (cellNumber === 14) return "2E";
+  if (cellNumber === 15) return "3E";
+  return String(cellNumber);
+};
 
 const PLANNER_FIELD_ROTATION_STEP_DEG = 90;
 
@@ -211,6 +236,8 @@ function App() {
   const taskStateModeRef = useRef(null);
   const taskStateOdomResetRef = useRef(null);
   const taskAutoSendEnabledRef = useRef(null);
+  const taskMffPathRef = useRef(null);
+  const taskMffPathAdvanceRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
@@ -305,6 +332,9 @@ function App() {
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
   const [plannerStateOdomResetConfig, setPlannerStateOdomResetConfig] = useState(() => createPlannerStateOdomResetConfig());
+  const [plannerMffPathInput, setPlannerMffPathInput] = useState("1,2,3");
+  const [plannerMffPathCells, setPlannerMffPathCells] = useState([]);
+  const [plannerMffPathInfo, setPlannerMffPathInfo] = useState("未送信");
   const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
   const [plannerExportsList, setPlannerExportsList] = useState([]);
   const [plannerSelectedExportPath, setPlannerSelectedExportPath] = useState("");
@@ -755,6 +785,51 @@ function App() {
     taskStateOdomResetRef.current.publish({
       data: [Number(stateCode), config.enabled ? 1 : 0],
     });
+  };
+
+  const publishPlannerMffPath = () => {
+    if (!taskMffPathRef.current) return;
+    const cells = parseMffPathInput(plannerMffPathInput);
+
+    if (cells.length === 0) {
+      setPlannerMffPathInfo(tr("MFF経路の形式が不正です", "Invalid MFF path format"));
+      return;
+    }
+
+    taskMffPathRef.current.publish({ data: cells });
+    setPlannerMffPathCells(cells);
+    setPlannerMffPathInfo(tr(`MFF経路を送信: ${cells.join(" -> ")}`, `Sent MFF path: ${cells.join(" -> ")}`));
+  };
+
+  const publishPlannerMffPathAdvance = () => {
+    if (!taskMffPathAdvanceRef.current) return;
+    taskMffPathAdvanceRef.current.publish({ data: true });
+
+    if (plannerMffPathCells.length === 0) {
+      setPlannerMffPathInfo(tr("MFF次マス進行を送信", "Sent MFF advance trigger"));
+      return;
+    }
+
+    const currentIndex = plannerMffPathCells.lastIndexOf(plannerCellCode);
+    let nextCell = null;
+
+    if (currentIndex < 0) {
+      nextCell = plannerMffPathCells[0];
+    } else if (currentIndex + 1 < plannerMffPathCells.length) {
+      nextCell = plannerMffPathCells[currentIndex + 1];
+    }
+
+    if (Number.isFinite(nextCell)) {
+      setPlannerCellCode(nextCell);
+      setPlannerCellInput(String(nextCell));
+      setPlannerMffPathInfo(tr(
+        `MFF次マス進行を送信: ${nextCell}へ移動`,
+        `Sent MFF advance trigger: move to ${nextCell}`
+      ));
+      return;
+    }
+
+    setPlannerMffPathInfo(tr("MFF次マス進行を送信（経路終端）", "Sent MFF advance trigger (end of path)"));
   };
 
   const movePlannerStateSequence = (stateCode, direction) => {
@@ -1217,6 +1292,16 @@ function App() {
   const showRedCourt = plannerColorCode !== 0;
   const showBlueCourt = plannerColorCode !== 1;
   const isSingleCourtView = (showRedCourt ? 1 : 0) + (showBlueCourt ? 1 : 0) === 1;
+  const plannerMffCurrentPathIndex = plannerMffPathCells.lastIndexOf(plannerCellCode);
+  const plannerMffHasPath = plannerMffPathCells.length > 0;
+  const plannerMffProgressLabel = !plannerMffHasPath
+    ? tr("経路未設定", "Path not set")
+    : plannerMffCurrentPathIndex < 0
+      ? tr("現在地は経路外", "Current cell is outside the path")
+      : tr(
+        `${plannerMffCurrentPathIndex + 1}/${plannerMffPathCells.length} マス目`,
+        `Step ${plannerMffCurrentPathIndex + 1}/${plannerMffPathCells.length}`
+      );
 
   const callRosService = (serviceRef, requestData) =>
     new Promise((resolve, reject) => {
@@ -3411,6 +3496,18 @@ function App() {
     taskAutoSendEnabledRef.current.publish({ data: true });
     setPlannerAutoSendEnabled(true);
 
+    taskMffPathRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_mff_path",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
+    taskMffPathAdvanceRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_mff_path_advance",
+      messageType: "std_msgs/msg/Bool",
+    });
+
     taskStatusSubRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r2/task_status",
@@ -4824,22 +4921,24 @@ function App() {
                       </div>
                       <div className="planner-field-cells">
                         {plannerLayoutRed.flatMap((row) => row.map((cell) => {
+                          if (cell === 0) return null;  // Skip empty cells
                           const isCurrent = plannerColorCode === 1 && plannerCellCode === cell;
                           const heightLevel = getMffHeightLevel(cell);
+                          const isEntrance = cell >= 13 && cell <= 15;
                           return (
                             <button
                               key={`mff-red-${cell}`}
                               type="button"
-                              className={`planner-field-cell planner-field-cell-red planner-field-height-${heightLevel} ${isCurrent ? "planner-field-cell-current" : ""}`}
+                              className={`planner-field-cell planner-field-cell-red planner-field-height-${heightLevel} ${isEntrance ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
                               onClick={() => {
                                 setPlannerColorCode(1);
                                 setPlannerCellInput(String(cell));
                                 publishPlannerColor(1);
                                 publishPlannerCellValue(cell);
                               }}
-                              title={tr(`赤コート ${cell}番`, `Red court cell ${cell}`)}
+                              title={tr(`赤コート ${getMffCellLabel(cell)}番`, `Red court cell ${getMffCellLabel(cell)}`)}
                             >
-                              <span className="planner-field-cell-number">{cell}</span>
+                              <span className="planner-field-cell-number">{getMffCellLabel(cell)}</span>
                               {isCurrent && <span className="planner-field-current-tag">{tr("現在地", "Current")}</span>}
                             </button>
                           );
@@ -4854,22 +4953,24 @@ function App() {
                       </div>
                       <div className="planner-field-cells">
                         {plannerLayoutBlue.flatMap((row) => row.map((cell) => {
+                          if (cell === 0) return null;  // Skip empty cells
                           const isCurrent = plannerColorCode === 0 && plannerCellCode === cell;
                           const heightLevel = getMffHeightLevel(cell);
+                          const isEntrance = cell >= 13 && cell <= 15;
                           return (
                             <button
                               key={`mff-blue-${cell}`}
                               type="button"
-                              className={`planner-field-cell planner-field-cell-blue planner-field-height-${heightLevel} ${isCurrent ? "planner-field-cell-current" : ""}`}
+                              className={`planner-field-cell planner-field-cell-blue planner-field-height-${heightLevel} ${isEntrance ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
                               onClick={() => {
                                 setPlannerColorCode(0);
                                 setPlannerCellInput(String(cell));
                                 publishPlannerColor(0);
                                 publishPlannerCellValue(cell);
                               }}
-                              title={tr(`青コート ${cell}番`, `Blue court cell ${cell}`)}
+                              title={tr(`青コート ${getMffCellLabel(cell)}番`, `Blue court cell ${getMffCellLabel(cell)}`)}
                             >
-                              <span className="planner-field-cell-number">{cell}</span>
+                              <span className="planner-field-cell-number">{getMffCellLabel(cell)}</span>
                               {isCurrent && <span className="planner-field-current-tag">{tr("現在地", "Current")}</span>}
                             </button>
                           );
@@ -4985,6 +5086,66 @@ function App() {
                         </button>
                       );
                     })}
+                  </div>
+                </section>
+
+                <section className="planner-status-card planner-manual-transition-card">
+                  <h3 className="serial-bridge-title">{tr("MFF経路入力", "MFF Path Input")}</h3>
+                  <p className="connection-hint">
+                    {tr(
+                      "MFFマス番号をカンマ区切りで入力します。外部ノードと同じトピックに送信できます。",
+                      "Enter MFF cell numbers separated by commas. Publishes to the same topic as external nodes."
+                    )}
+                  </p>
+                  <div className="planner-cell-row planner-cell-row-inline">
+                    <label className="serial-packet-label planner-cell-label planner-cell-label-inline">
+                      {tr("経路", "Path")}
+                      <input
+                        className="connection-input"
+                        value={plannerMffPathInput}
+                        onChange={(e) => setPlannerMffPathInput(e.target.value)}
+                        placeholder="1,2,3"
+                      />
+                    </label>
+                    <button className="connection-button btn-send" onClick={publishPlannerMffPath}>
+                      {tr("経路を送信", "Send Path")}
+                    </button>
+                    <button className="connection-button btn-connect" onClick={publishPlannerMffPathAdvance}>
+                      {tr("次マス進行", "Advance Next Cell")}
+                    </button>
+                  </div>
+                  <p className="connection-hint">{plannerMffPathInfo}</p>
+                  <div className="planner-mff-progress-wrap">
+                    <div className="planner-mff-progress-header">
+                      <strong>{tr("マス進行表示", "Cell Progress")}</strong>
+                      <span className="planner-mff-progress-text">{plannerMffProgressLabel}</span>
+                    </div>
+                    {!plannerMffHasPath ? (
+                      <p className="connection-hint">{tr("経路送信後に現在地との進行状況を表示します", "Progress will appear after sending a path")}</p>
+                    ) : (
+                      <div className="planner-mff-progress-track">
+                        {plannerMffPathCells.map((cell, index) => {
+                          const isCurrent = plannerMffCurrentPathIndex === index;
+                          const isPassed = plannerMffCurrentPathIndex > index;
+                          const badgeClass = isCurrent
+                            ? "planner-mff-progress-cell planner-mff-progress-cell-current"
+                            : isPassed
+                              ? "planner-mff-progress-cell planner-mff-progress-cell-passed"
+                              : "planner-mff-progress-cell";
+                          return (
+                            <React.Fragment key={`planner-mff-path-cell-${index}-${cell}`}>
+                              <span className={badgeClass}>
+                                {getMffCellLabel(cell)}
+                                {isCurrent ? ` ${tr("現在地", "Now")}` : ""}
+                              </span>
+                              {index < plannerMffPathCells.length - 1 && (
+                                <span className="planner-mff-progress-arrow">{">"}</span>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </section>
 
