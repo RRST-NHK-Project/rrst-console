@@ -3216,3 +3216,185 @@
   min-width: 100px;
   min-height: 70px;
 }
+
+/* Actuator Monitor Styles */
+.actuator-monitor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: var(--panel);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.actuator-monitor-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 8px;
+}
+
+.actuator-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: 16px;
+}
+
+.actuator-device-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.actuator-device-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.actuator-device-timestamp {
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  font-weight: 400;
+}
+
+.actuator-monitor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.actuator-monitor-section:last-child {
+  border-bottom: none;
+}
+
+.actuator-monitor-subtitle {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-main);
+  margin: 0;
+  padding: 4px 0;
+}
+
+.actuator-monitor-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+}
+
+.actuator-item-label {
+  min-width: 60px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-sub);
+}
+
+.actuator-value-bar {
+  flex: 1;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.actuator-motor-bar {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, rgba(0, 0, 0, 0.04) 50%, rgba(59, 130, 246, 0.1) 100%);
+}
+
+.actuator-value-fill {
+  transition: width 0.2s ease;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4);
+}
+
+.actuator-value-fill-positive {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #0ea5e9);
+  transition: width 0.2s ease;
+}
+
+.actuator-value-fill-negative {
+  height: 100%;
+  background: linear-gradient(270deg, #ef4444, #f87171);
+  transition: width 0.2s ease;
+}
+
+.actuator-servo {
+  background: linear-gradient(90deg, #10b981, #34d399) !important;
+}
+
+.actuator-debug {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24) !important;
+}
+
+.actuator-value-text {
+  min-width: 50px;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-sub);
+  font-family: "Monaco", "Courier New", monospace;
+}
+
+.actuator-tr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+}
+
+.actuator-tr-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.actuator-tr-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-sub);
+}
+
+.actuator-tr-indicator {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.actuator-tr-indicator.tr-on {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+}
+
+.actuator-tr-indicator.tr-off {
+  background: linear-gradient(135deg, #6b7280, #9ca3af);
+  box-shadow: none;
+}

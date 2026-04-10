@@ -301,6 +301,7 @@ function App() {
     "teaching",
     "simulator",
     "actuator",
+    "actuator-monitor",
     "topic",
     "camera",
     "cube-detection",
@@ -439,6 +440,11 @@ function App() {
   const [yawOffsetDegInput, setYawOffsetDegInput] = useState("90");
   const [virtualOdomEnabled, setVirtualOdomEnabled] = useState(false);
   const [virtualOdomHzInput, setVirtualOdomHzInput] = useState("10");
+  const [actuatorMonitorDeviceIds, setActuatorMonitorDeviceIds] = useState([0]);
+  const [actuatorMonitorDeviceIdsInput, setActuatorMonitorDeviceIdsInput] = useState("0");
+  const [actuatorMonitorValues, setActuatorMonitorValues] = useState({});
+  const [actuatorMonitorUpdateTimes, setActuatorMonitorUpdateTimes] = useState({});
+  const actuatorMonitorSubRefsRef = useRef({});
   const virtualOdomEnabledRef = useRef(false);
   const arucoTargetIdValueRef = useRef(-1);
   const arucoCameraOffsetXRef = useRef(-0.1735);
@@ -568,6 +574,7 @@ function App() {
     if (page === "teaching") return tr("ティーチング", "Teaching");
     if (page === "simulator") return tr("仮想オドメトリ", "Virtual Odom");
     if (page === "actuator") return tr("ダイレクト送信", "Actuator TX");
+    if (page === "actuator-monitor") return tr("アクチュエータ監視", "Actuator Monitor");
     if (page === "topic") return tr("トピック監視", "Topics");
     if (page === "camera") return tr("カメラ映像", "Camera");
     if (page === "cube-detection") return tr("立方体検知", "Cube Detection");
@@ -3713,6 +3720,49 @@ function App() {
     };
   }, [rosUrl, joyTopicName, virtualOdomTopicName, wallAngleTopicName]);
 
+  // Actuator Monitor subscriptions
+  useEffect(() => {
+    if (!rosRef.current) return;
+
+    const subscriptions = {};
+
+    actuatorMonitorDeviceIds.forEach((deviceId) => {
+      const topicName = `serial_tx_${deviceId}`;
+      const topic = new ROSLIB.Topic({
+        ros: rosRef.current,
+        name: topicName,
+        messageType: "std_msgs/msg/Int16MultiArray",
+      });
+
+      topic.subscribe((msg) => {
+        if (!msg?.data || !Array.isArray(msg.data)) return;
+        setActuatorMonitorValues((prev) => ({
+          ...prev,
+          [deviceId]: msg.data,
+        }));
+        setActuatorMonitorUpdateTimes((prev) => ({
+          ...prev,
+          [deviceId]: new Date().getTime(),
+        }));
+      });
+
+      subscriptions[deviceId] = topic;
+    });
+
+    actuatorMonitorSubRefsRef.current = subscriptions;
+
+    return () => {
+      Object.values(subscriptions).forEach((topic) => {
+        try {
+          topic.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing actuator monitor topic:", error);
+        }
+      });
+      actuatorMonitorSubRefsRef.current = {};
+    };
+  }, [actuatorMonitorDeviceIds]);
+
   useEffect(() => {
     if (!virtualOdomEnabled || !virtualOdomPubRef.current) {
       if (virtualOdomTimerRef.current) {
@@ -5887,6 +5937,128 @@ function App() {
               </div>
 
               <p className="connection-hint">{translateRuntimeText(serialPublishInfo)}</p>
+            </section>
+          )}
+
+          {isPageActive("actuator-monitor") && (
+            <section className="actuator-monitor-panel">
+              <h2 className="serial-packet-title">{tr("アクチュエータ監視", "Actuator Monitor")}</h2>
+              <p className="serial-packet-hint">
+                {tr("serial_tx_* トピックをサブスクライブして、各アクチュエータの状態をリアルタイムで表示します。", "Subscribe to serial_tx_* topics and display actuator states in real-time.")}
+              </p>
+
+              <div className="actuator-monitor-controls">
+                <label className="serial-packet-label">
+                  {tr("監視対象デバイスID (カンマ区切り)", "Monitor Device IDs (comma-separated)")}
+                  <input
+                    className="connection-input"
+                    type="text"
+                    value={actuatorMonitorDeviceIdsInput}
+                    onChange={(e) => {
+                      setActuatorMonitorDeviceIdsInput(e.target.value);
+                      const ids = e.target.value.split(",").map((id) => {
+                        const parsed = parseInt(id.trim(), 10);
+                        return Number.isFinite(parsed) && parsed >= 0 && parsed <= 255 ? parsed : null;
+                      }).filter((id) => id !== null);
+                      if (ids.length > 0) {
+                        setActuatorMonitorDeviceIds(ids);
+                      }
+                    }}
+                    placeholder="0,1,2"
+                  />
+                </label>
+              </div>
+
+              <div className="actuator-monitor-grid">
+                {actuatorMonitorDeviceIds.map((deviceId) => {
+                  const values = actuatorMonitorValues[deviceId] || Array(DEFAULT_PACKET_COUNT).fill(0);
+                  const updateTime = actuatorMonitorUpdateTimes[deviceId];
+                  const lastUpdateStr = updateTime ? new Date(updateTime).toLocaleTimeString() : tr("未受信", "No data");
+
+                  return (
+                    <section key={`actuator-device-${deviceId}`} className="actuator-device-card">
+                      <h3 className="actuator-device-title">
+                        {tr("デバイス", "Device")} ID: {deviceId}
+                        <span className="actuator-device-timestamp"> ({lastUpdateStr})</span>
+                      </h3>
+
+                      <section className="actuator-monitor-section">
+                        <h4 className="actuator-monitor-subtitle">{tr("DEBUG", "DEBUG")}</h4>
+                        <div className="actuator-monitor-item">
+                          <div className="actuator-value-bar">
+                            <div
+                              className="actuator-value-fill actuator-debug"
+                              style={{
+                                width: `${(values[0] ?? 0) * 100}%`,
+                                backgroundColor: (values[0] ?? 0) === 1 ? "#4ade80" : "#6b7280",
+                              }}
+                            ></div>
+                          </div>
+                          <span className="actuator-value-text">{values[0] ?? 0}</span>
+                        </div>
+                      </section>
+
+                      <section className="actuator-monitor-section">
+                        <h4 className="actuator-monitor-subtitle">{tr("モータ出力", "Motors")} (MD1-8): -255 ~ 255</h4>
+                        {Array.from({ length: 8 }, (_, i) => i + 1).map((idx) => (
+                          <div key={`motor-${deviceId}-${idx}`} className="actuator-monitor-item">
+                            <label className="actuator-item-label">MD{idx}</label>
+                            <div className="actuator-value-bar actuator-motor-bar">
+                              <div
+                                className="actuator-value-fill-negative"
+                                style={{
+                                  width: `${Math.max(0, -(values[idx] ?? 0) / 255 * 50)}%`,
+                                }}
+                              ></div>
+                              <div
+                                className="actuator-value-fill-positive"
+                                style={{
+                                  width: `${Math.max(0, (values[idx] ?? 0) / 255 * 50)}%`,
+                                }}
+                              ></div>
+                            </div>
+                            <span className="actuator-value-text">{values[idx] ?? 0}</span>
+                          </div>
+                        ))}
+                      </section>
+
+                      <section className="actuator-monitor-section">
+                        <h4 className="actuator-monitor-subtitle">{tr("サーボ角度", "Servos")} (SERVO1-8): 0 ~ 270°</h4>
+                        {Array.from({ length: 8 }, (_, i) => i + 9).map((idx) => (
+                          <div key={`servo-${deviceId}-${idx}`} className="actuator-monitor-item">
+                            <label className="actuator-item-label">SERVO{idx - 8}</label>
+                            <div className="actuator-value-bar">
+                              <div
+                                className="actuator-value-fill actuator-servo"
+                                style={{
+                                  width: `${((values[idx] ?? 0) / 270) * 100}%`,
+                                }}
+                              ></div>
+                            </div>
+                            <span className="actuator-value-text">{values[idx] ?? 0}°</span>
+                          </div>
+                        ))}
+                      </section>
+
+                      <section className="actuator-monitor-section">
+                        <h4 className="actuator-monitor-subtitle">{tr("デジタル出力", "Digital Outputs")} (TR1-7)</h4>
+                        <div className="actuator-tr-grid">
+                          {Array.from({ length: 7 }, (_, i) => i + 17).map((idx) => (
+                            <div key={`tr-${deviceId}-${idx}`} className="actuator-tr-item">
+                              <label className="actuator-tr-label">TR{idx - 16}</label>
+                              <div
+                                className={`actuator-tr-indicator ${(values[idx] ?? 0) === 1 ? "tr-on" : "tr-off"}`}
+                              >
+                                {(values[idx] ?? 0) === 1 ? tr("ON", "ON") : tr("OFF", "OFF")}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    </section>
+                  );
+                })}
+              </div>
             </section>
           )}
 
