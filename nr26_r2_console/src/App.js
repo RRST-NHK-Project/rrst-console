@@ -221,6 +221,8 @@ const getMffCellLabel = (cellNumber, language = "ja") => {
   return String(cellNumber);
 };
 
+const buildMffPathTextFromCells = (cells = []) => cells.map((cell) => getMffCellLabel(cell)).join(",");
+
 const PLANNER_FIELD_ROTATION_STEP_DEG = 90;
 
 function App() {
@@ -341,6 +343,8 @@ function App() {
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
   const [plannerStateOdomResetConfig, setPlannerStateOdomResetConfig] = useState(() => createPlannerStateOdomResetConfig());
   const [plannerMffPathInput, setPlannerMffPathInput] = useState("1,2,3");
+  const [plannerMffPathClickInputEnabled, setPlannerMffPathClickInputEnabled] = useState(false);
+  const [plannerMffPathDraftCells, setPlannerMffPathDraftCells] = useState(() => parseMffPathInput("1,2,3"));
   const [plannerMffPathCells, setPlannerMffPathCells] = useState([]);
   const [plannerMffPathInfo, setPlannerMffPathInfo] = useState("未送信");
   const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
@@ -805,8 +809,52 @@ function App() {
     }
 
     taskMffPathRef.current.publish({ data: cells });
+    setPlannerMffPathDraftCells(cells);
     setPlannerMffPathCells(cells);
-    setPlannerMffPathInfo(tr(`MFF経路を送信: ${cells.join(" -> ")}`, `Sent MFF path: ${cells.join(" -> ")}`));
+    setPlannerMffPathInfo(tr(`MFF経路を送信: ${buildMffPathTextFromCells(cells).replaceAll(",", " -> ")}`, `Sent MFF path: ${buildMffPathTextFromCells(cells).replaceAll(",", " -> ")}`));
+  };
+
+  const onPlannerMffMapCellClick = (colorCode, cell) => {
+    setPlannerColorCode(colorCode);
+    publishPlannerColor(colorCode);
+
+    if (plannerMffPathClickInputEnabled) {
+      setPlannerMffPathDraftCells((prevCells) => {
+        const nextCells = [...prevCells, cell];
+        setPlannerMffPathInput(buildMffPathTextFromCells(nextCells));
+        setPlannerMffPathInfo(tr(
+          `クリック入力: ${buildMffPathTextFromCells(nextCells).replaceAll(",", " -> ")}`,
+          `Click input: ${buildMffPathTextFromCells(nextCells).replaceAll(",", " -> ")}`
+        ));
+        return nextCells;
+      });
+      return;
+    }
+
+    setPlannerCellInput(String(cell));
+    publishPlannerCellValue(cell);
+  };
+
+  const undoPlannerMffPathDraft = () => {
+    setPlannerMffPathDraftCells((prevCells) => {
+      const nextCells = prevCells.slice(0, -1);
+      setPlannerMffPathInput(buildMffPathTextFromCells(nextCells));
+      setPlannerMffPathInfo(
+        nextCells.length > 0
+          ? tr(
+            `クリック入力: ${buildMffPathTextFromCells(nextCells).replaceAll(",", " -> ")}`,
+            `Click input: ${buildMffPathTextFromCells(nextCells).replaceAll(",", " -> ")}`
+          )
+          : tr("クリック入力をクリアしました", "Cleared click input")
+      );
+      return nextCells;
+    });
+  };
+
+  const clearPlannerMffPathDraft = () => {
+    setPlannerMffPathDraftCells([]);
+    setPlannerMffPathInput("");
+    setPlannerMffPathInfo(tr("クリック入力をクリアしました", "Cleared click input"));
   };
 
   const publishPlannerMffPathAdvance = () => {
@@ -4938,12 +4986,7 @@ function App() {
                               key={`mff-red-${cell}`}
                               type="button"
                               className={`planner-field-cell planner-field-cell-red planner-field-height-${heightLevel} ${isGate ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
-                              onClick={() => {
-                                setPlannerColorCode(1);
-                                setPlannerCellInput(String(cell));
-                                publishPlannerColor(1);
-                                publishPlannerCellValue(cell);
-                              }}
+                              onClick={() => onPlannerMffMapCellClick(1, cell)}
                               title={tr(`赤コート ${getMffCellLabel(cell)}番`, `Red court cell ${getMffCellLabel(cell)}`)}
                             >
                               <span className="planner-field-cell-number">{getMffCellLabel(cell)}</span>
@@ -4970,12 +5013,7 @@ function App() {
                               key={`mff-blue-${cell}`}
                               type="button"
                               className={`planner-field-cell planner-field-cell-blue planner-field-height-${heightLevel} ${isGate ? "planner-field-cell-entrance" : ""} ${isCurrent ? "planner-field-cell-current" : ""}`}
-                              onClick={() => {
-                                setPlannerColorCode(0);
-                                setPlannerCellInput(String(cell));
-                                publishPlannerColor(0);
-                                publishPlannerCellValue(cell);
-                              }}
+                              onClick={() => onPlannerMffMapCellClick(0, cell)}
                               title={tr(`青コート ${getMffCellLabel(cell)}番`, `Blue court cell ${getMffCellLabel(cell)}`)}
                             >
                               <span className="planner-field-cell-number">{getMffCellLabel(cell)}</span>
@@ -4988,29 +5026,137 @@ function App() {
                   </div>
                 </div>
 
-                <section className="serial-bridge-card planner-status-card planner-status-card-top">
-                  <h3 className="serial-bridge-title">{tr("状態監視", "Status Monitor")}</h3>
-                  <div className="pose-current-grid planner-current-grid">
-                    <div className="pose-current-item">
-                      <span>{tr("状態", "State")}</span>
-                      <strong>{plannerStateLabel}</strong>
+                <div className="planner-side-column">
+                  <section className="planner-status-card planner-manual-transition-card">
+                    <h3 className="serial-bridge-title">{tr("手動遷移", "Manual Transition")}</h3>
+                    <p className="connection-hint">
+                      {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
+                    </p>
+                    <div className="planner-state-buttons">
+                      {plannerStateSequence.map((stateCode, index) => {
+                        const label = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap);
+                        const isSelected = plannerStateCode === stateCode;
+                        return (
+                          <button
+                            key={`planner-state-${stateCode}`}
+                            className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
+                            onClick={() => publishPlannerState(stateCode)}
+                            disabled={plannerTransitionModeCode === 1}
+                          >
+                            {index + 1}. {label}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="pose-current-item">
-                      <span>{tr("色", "Color")}</span>
-                      <strong>{plannerColorLabel}</strong>
+                  </section>
+
+                  <section className="planner-status-card planner-manual-transition-card">
+                    <h3 className="serial-bridge-title">{tr("MFF経路入力", "MFF Path Input")}</h3>
+                    <p className="connection-hint">
+                      {tr(
+                        "MFFマス番号をカンマ区切りで入力します。外部ノードと同じトピックに送信できます。",
+                        "Enter MFF cell numbers separated by commas. Publishes to the same topic as external nodes."
+                      )}
+                    </p>
+                    <div className="planner-cell-row planner-cell-row-inline planner-mff-path-row">
+                      <label className="serial-packet-label planner-cell-label planner-cell-label-inline">
+                        {tr("経路", "Path")}
+                        <input
+                          className="connection-input"
+                          value={plannerMffPathInput}
+                          onChange={(e) => {
+                            const rawInput = e.target.value;
+                            setPlannerMffPathInput(rawInput);
+                            setPlannerMffPathDraftCells(parseMffPathInput(rawInput));
+                          }}
+                          placeholder="1,2,3"
+                        />
+                      </label>
+                      <button
+                        className={`connection-button ${plannerMffPathClickInputEnabled ? "btn-send" : "btn-connect"}`}
+                        onClick={() => setPlannerMffPathClickInputEnabled((prev) => !prev)}
+                      >
+                        {plannerMffPathClickInputEnabled
+                          ? tr("クリック入力: ON", "Click Input: ON")
+                          : tr("クリック入力: OFF", "Click Input: OFF")}
+                      </button>
+                      <button className="connection-button btn-neutral" onClick={undoPlannerMffPathDraft}>
+                        {tr("1手戻す", "Undo")}
+                      </button>
+                      <button className="serial-clear-button" onClick={clearPlannerMffPathDraft}>
+                        {tr("経路クリア", "Clear Path")}
+                      </button>
+                      <button className="connection-button btn-send" onClick={publishPlannerMffPath}>
+                        {tr("経路を送信", "Send Path")}
+                      </button>
+                      <button className="connection-button btn-connect" onClick={publishPlannerMffPathAdvance}>
+                        {tr("次マス進行", "Advance Next Cell")}
+                      </button>
                     </div>
-                    <div className="pose-current-item">
-                      <span>{tr("MFFマス", "MFF Cell")}</span>
-                      <strong>{plannerCellCode === 0 ? tr("未設定", "Unset") : plannerCellCode}</strong>
+                    <p className="connection-hint">
+                      {plannerMffPathClickInputEnabled
+                        ? tr("クリック入力モード: マップを順番にクリックして経路を作成", "Click-input mode: click map cells in order to build path")
+                        : tr("クリック入力モードOFF: マップクリックは現在地更新", "Click-input mode OFF: map click updates current cell")}
+                    </p>
+                    <p className="connection-hint">{plannerMffPathInfo}</p>
+                    <div className="planner-mff-progress-wrap">
+                      <div className="planner-mff-progress-header">
+                        <strong>{tr("マス進行表示", "Cell Progress")}</strong>
+                        <span className="planner-mff-progress-text">{plannerMffProgressLabel}</span>
+                      </div>
+                      {!plannerMffHasPath ? (
+                        <p className="connection-hint">{tr("経路送信後に現在地との進行状況を表示します", "Progress will appear after sending a path")}</p>
+                      ) : (
+                        <div className="planner-mff-progress-track">
+                          {plannerMffPathCells.map((cell, index) => {
+                            const isCurrent = plannerMffCurrentPathIndex === index;
+                            const isPassed = plannerMffCurrentPathIndex > index;
+                            const badgeClass = isCurrent
+                              ? "planner-mff-progress-cell planner-mff-progress-cell-current"
+                              : isPassed
+                                ? "planner-mff-progress-cell planner-mff-progress-cell-passed"
+                                : "planner-mff-progress-cell";
+                            return (
+                              <React.Fragment key={`planner-mff-path-cell-${index}-${cell}`}>
+                                <span className={badgeClass}>
+                                  {getMffCellLabel(cell)}
+                                  {isCurrent ? ` ${tr("現在地", "Now")}` : ""}
+                                </span>
+                                {index < plannerMffPathCells.length - 1 && (
+                                  <span className="planner-mff-progress-arrow">{">"}</span>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <div className="pose-current-item">
-                      <span>{tr("遷移", "Transition")}</span>
-                      <strong>{plannerModeLabel}</strong>
-                    </div>
-                  </div>
-                  <p className="connection-hint planner-status-text">{plannerStatusText || tr("状態テキスト未受信", "No status text yet")}</p>
-                </section>
+                  </section>
+                </div>
               </div>
+
+              <section className="serial-bridge-card planner-status-card planner-status-card-wide">
+                <h3 className="serial-bridge-title">{tr("状態監視", "Status Monitor")}</h3>
+                <div className="pose-current-grid planner-current-grid planner-current-grid-wide">
+                  <div className="pose-current-item">
+                    <span>{tr("状態", "State")}</span>
+                    <strong>{plannerStateLabel}</strong>
+                  </div>
+                  <div className="pose-current-item">
+                    <span>{tr("色", "Color")}</span>
+                    <strong>{plannerColorLabel}</strong>
+                  </div>
+                  <div className="pose-current-item">
+                    <span>{tr("MFFマス", "MFF Cell")}</span>
+                    <strong>{plannerCellCode === 0 ? tr("未設定", "Unset") : getMffCellLabel(plannerCellCode)}</strong>
+                  </div>
+                  <div className="pose-current-item">
+                    <span>{tr("遷移", "Transition")}</span>
+                    <strong>{plannerModeLabel}</strong>
+                  </div>
+                </div>
+                <p className="connection-hint planner-status-text">{plannerStatusText || tr("状態テキスト未受信", "No status text yet")}</p>
+              </section>
 
               <section className="serial-bridge-card planner-controls-panel">
                 <div className="planner-toolbar planner-toolbar-bottom">
@@ -5073,89 +5219,6 @@ function App() {
                     {tr("現在のモード", "Current Mode")}: {plannerModeLabel}
                   </span>
                 </div>
-
-                <section className="planner-status-card planner-manual-transition-card">
-                  <h3 className="serial-bridge-title">{tr("手動遷移", "Manual Transition")}</h3>
-                  <p className="connection-hint">
-                    {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
-                  </p>
-                  <div className="planner-state-buttons">
-                    {plannerStateSequence.map((stateCode, index) => {
-                      const label = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap);
-                      const isSelected = plannerStateCode === stateCode;
-                      return (
-                        <button
-                          key={`planner-state-${stateCode}`}
-                          className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
-                          onClick={() => publishPlannerState(stateCode)}
-                          disabled={plannerTransitionModeCode === 1}
-                        >
-                          {index + 1}. {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className="planner-status-card planner-manual-transition-card">
-                  <h3 className="serial-bridge-title">{tr("MFF経路入力", "MFF Path Input")}</h3>
-                  <p className="connection-hint">
-                    {tr(
-                      "MFFマス番号をカンマ区切りで入力します。外部ノードと同じトピックに送信できます。",
-                      "Enter MFF cell numbers separated by commas. Publishes to the same topic as external nodes."
-                    )}
-                  </p>
-                  <div className="planner-cell-row planner-cell-row-inline">
-                    <label className="serial-packet-label planner-cell-label planner-cell-label-inline">
-                      {tr("経路", "Path")}
-                      <input
-                        className="connection-input"
-                        value={plannerMffPathInput}
-                        onChange={(e) => setPlannerMffPathInput(e.target.value)}
-                        placeholder="1,2,3"
-                      />
-                    </label>
-                    <button className="connection-button btn-send" onClick={publishPlannerMffPath}>
-                      {tr("経路を送信", "Send Path")}
-                    </button>
-                    <button className="connection-button btn-connect" onClick={publishPlannerMffPathAdvance}>
-                      {tr("次マス進行", "Advance Next Cell")}
-                    </button>
-                  </div>
-                  <p className="connection-hint">{plannerMffPathInfo}</p>
-                  <div className="planner-mff-progress-wrap">
-                    <div className="planner-mff-progress-header">
-                      <strong>{tr("マス進行表示", "Cell Progress")}</strong>
-                      <span className="planner-mff-progress-text">{plannerMffProgressLabel}</span>
-                    </div>
-                    {!plannerMffHasPath ? (
-                      <p className="connection-hint">{tr("経路送信後に現在地との進行状況を表示します", "Progress will appear after sending a path")}</p>
-                    ) : (
-                      <div className="planner-mff-progress-track">
-                        {plannerMffPathCells.map((cell, index) => {
-                          const isCurrent = plannerMffCurrentPathIndex === index;
-                          const isPassed = plannerMffCurrentPathIndex > index;
-                          const badgeClass = isCurrent
-                            ? "planner-mff-progress-cell planner-mff-progress-cell-current"
-                            : isPassed
-                              ? "planner-mff-progress-cell planner-mff-progress-cell-passed"
-                              : "planner-mff-progress-cell";
-                          return (
-                            <React.Fragment key={`planner-mff-path-cell-${index}-${cell}`}>
-                              <span className={badgeClass}>
-                                {getMffCellLabel(cell)}
-                                {isCurrent ? ` ${tr("現在地", "Now")}` : ""}
-                              </span>
-                              {index < plannerMffPathCells.length - 1 && (
-                                <span className="planner-mff-progress-arrow">{">"}</span>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </section>
 
                 <section className="planner-state-config-panel">
                   <div className="planner-state-config-header">

@@ -669,12 +669,30 @@
   align-self: end;
 }
 
+.planner-mff-path-row {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.planner-mff-path-row .planner-cell-label-inline {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
 .planner-top-grid {
   margin-top: 10px;
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
   gap: 10px;
   align-items: start;
+}
+
+.planner-side-column {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 .planner-controls-panel {
@@ -843,8 +861,17 @@
   margin-top: 0;
 }
 
+.planner-status-card-wide {
+  margin-top: 10px;
+}
+
 .planner-current-grid {
   margin-top: 8px;
+}
+
+.planner-current-grid-wide {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .planner-status-text {
