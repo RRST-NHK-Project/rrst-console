@@ -676,6 +676,12 @@ function App() {
 
   const publishPlannerState = (stateCode) => {
     if (!taskStateCommandRef.current) return;
+
+    // Keep planner-side per-state settings in sync before triggering the state transition.
+    publishPlannerStatePose(stateCode);
+    publishPlannerStateMode(stateCode);
+    publishPlannerStateOdomReset(stateCode);
+
     taskStateCommandRef.current.publish({ data: Number(stateCode) });
   };
 
