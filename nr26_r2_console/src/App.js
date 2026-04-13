@@ -75,6 +75,8 @@ const DRIVE_MODE_LABELS = {
   0: { ja: "手動", en: "Manual" },
   1: { ja: "自動", en: "Auto" },
   2: { ja: "ArUco", en: "ArUco" },
+  3: { ja: "平面モード", en: "Plane" },
+  4: { ja: "MFFモード", en: "MFF" },
 };
 
 const PLANNER_COLOR_LABELS = {
@@ -166,7 +168,8 @@ const createPlannerStateModeConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) 
       stateCode,
       {
         enabled: false,
-        modeCode: 1,
+        modeCode: stateCode === 1 ? 4 : 3,
+        rotateOnly: false,
       },
     ])
   );
@@ -420,6 +423,7 @@ function App() {
   const [traceReplayAutoPublish, setTraceReplayAutoPublish] = useState(true);
   const [traceInfo, setTraceInfo] = useState("未開始");
   const [autoDriveCmdInfo, setAutoDriveCmdInfo] = useState("未送信");
+  const [rotateOnlyMode, setRotateOnlyMode] = useState(false);
   const [topicList, setTopicList] = useState([]);
   const [topicListLoading, setTopicListLoading] = useState(false);
   const [topicListError, setTopicListError] = useState("");
@@ -897,8 +901,10 @@ function App() {
     const config = plannerStateModeConfig[stateCode];
     if (!config) return;
 
+    const modeCode = config.enabled ? Number(config.modeCode) : -1;
+    const rotateOnlyFlag = config.enabled && config.rotateOnly ? 1 : 0;
     taskStateModeRef.current.publish({
-      data: [Number(stateCode), config.enabled ? Number(config.modeCode) : -1],
+      data: [Number(stateCode), modeCode, rotateOnlyFlag],
     });
   };
 
@@ -1101,7 +1107,7 @@ function App() {
     }));
     setPlannerStateModeConfig((prev) => ({
       ...prev,
-      [code]: { enabled: false, modeCode: 1 },
+      [code]: { enabled: false, modeCode: 3, rotateOnly: false },
     }));
     setPlannerStateOdomResetConfig((prev) => ({
       ...prev,
@@ -1255,7 +1261,7 @@ function App() {
       const modeCode = Number(raw?.modeCode);
       return [code, {
         enabled: Boolean(raw?.enabled),
-        modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 2 ? modeCode : fallback.modeCode,
+        modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 4 ? modeCode : fallback.modeCode,
       }];
     }));
 
@@ -1318,7 +1324,7 @@ function App() {
         allStateCodes.map((code) => {
           const config = plannerStateModeConfig[code] || createPlannerStateModeConfig()[code] || {
             enabled: false,
-            modeCode: 1,
+            modeCode: 3,
           };
           return [code, {
             enabled: Boolean(config.enabled),
@@ -1398,7 +1404,7 @@ function App() {
         allStateCodes.map((code) => {
           const config = plannerStateModeConfig[code] || createPlannerStateModeConfig()[code] || {
             enabled: false,
-            modeCode: 1,
+            modeCode: 3,
           };
           return [code, {
             enabled: Boolean(config.enabled),
@@ -1544,14 +1550,18 @@ function App() {
     }));
   };
 
-  const updatePlannerStateMode = (stateCode, nextModeCode) => {
-    setPlannerStateModeConfig((prev) => ({
-      ...prev,
-      [stateCode]: {
-        enabled: nextModeCode >= 0,
-        modeCode: nextModeCode >= 0 ? nextModeCode : prev[stateCode]?.modeCode ?? 1,
-      },
-    }));
+  const updatePlannerStateMode = (stateCode, nextModeCode, rotateOnly = null) => {
+    setPlannerStateModeConfig((prev) => {
+      const currentConfig = prev[stateCode] || { enabled: false, modeCode: 3, rotateOnly: false };
+      return {
+        ...prev,
+        [stateCode]: {
+          enabled: nextModeCode >= 0,
+          modeCode: nextModeCode >= 0 ? nextModeCode : currentConfig.modeCode,
+          rotateOnly: rotateOnly !== null ? rotateOnly : currentConfig.rotateOnly,
+        },
+      };
+    });
   };
 
   const updatePlannerStateOdomReset = (stateCode, enabled) => {
@@ -2249,12 +2259,13 @@ function App() {
   const waypointDistanceThreshold = Math.max(0.01, parseFloatSafe(waypointDistanceThresholdInput, 0.2));
   const waypointYawThreshold = Math.max(0.5, parseFloatSafe(waypointYawThresholdInput, 15));
 
-  const publishAutoDriveTarget = (x, y, yawRad) => {
+  const publishAutoDriveTarget = (x, y, yawRad, rotateOnly = false) => {
     if (!autoDriveCmdRef.current) {
       return false;
     }
+    const messageData = rotateOnly ? [x, y, yawRad, 1] : [x, y, yawRad];
     autoDriveCmdRef.current.publish({
-      data: [x, y, yawRad],
+      data: messageData,
     });
     return true;
   };
@@ -2273,7 +2284,7 @@ function App() {
     if (shouldPublish) {
       if (!operationArmed) {
         setWaypointInfo(tr("操作ロック中のため目標送信はスキップしました", "Safety lock is ON, skipped publishing target"));
-      } else if (!publishAutoDriveTarget(waypoint.x, waypoint.y, yawRad)) {
+      } else if (!publishAutoDriveTarget(waypoint.x, waypoint.y, yawRad, false)) {
         setWaypointInfo(tr("ROS未接続のため目標送信できません", "Cannot publish target because ROS is not connected"));
       }
     }
@@ -2295,7 +2306,7 @@ function App() {
     if (shouldPublish) {
       if (!operationArmed) {
         setTraceInfo(tr("操作ロック中のため目標送信はスキップしました", "Safety lock is ON, skipped publishing target"));
-      } else if (!publishAutoDriveTarget(point.x, point.y, yawRad)) {
+      } else if (!publishAutoDriveTarget(point.x, point.y, yawRad, false)) {
         setTraceInfo(tr("ROS未接続のため目標送信できません", "Cannot publish target because ROS is not connected"));
       }
     }
@@ -3561,7 +3572,7 @@ function App() {
     });
     driveModeRef.current.subscribe((msg) => {
       const nextMode = (msg?.data || "").toUpperCase();
-      if (nextMode === "AUTO" || nextMode === "MANUAL" || nextMode === "ARUCO") {
+      if (nextMode === "AUTO" || nextMode === "MANUAL" || nextMode === "ARUCO" || nextMode === "PLANE" || nextMode === "MFF") {
         setDriveMode(nextMode);
       }
     });
@@ -4654,26 +4665,47 @@ function App() {
                 </label>
               </div>
 
+              <div className="pose-checkbox-row">
+                <label className="serial-packet-label">
+                  <input
+                    type="checkbox"
+                    checked={rotateOnlyMode}
+                    onChange={(e) => setRotateOnlyMode(e.target.checked)}
+                  />
+                  {tr("回転のみ (座標変更なし)", "Rotation only (no movement)")}
+                </label>
+              </div>
+
               <div className="pose-input-grid">
                 <div className="pose-input-item">
                   <label className="serial-packet-label">
                     {tr("目標X", "Target X")}
-                    <input className="connection-input" value={targetXInput} onChange={(e) => setTargetXInput(e.target.value)} />
+                    <input
+                      className="connection-input"
+                      value={targetXInput}
+                      onChange={(e) => setTargetXInput(e.target.value)}
+                      disabled={rotateOnlyMode}
+                    />
                   </label>
                   <div className="pose-button-group">
-                    <button className="pose-pm-button" onClick={() => decrementTarget(setTargetXInput, targetXInput, targetXStep)}>−</button>
-                    <button className="pose-pm-button" onClick={() => incrementTarget(setTargetXInput, targetXInput, targetXStep)}>+</button>
+                    <button className="pose-pm-button" onClick={() => decrementTarget(setTargetXInput, targetXInput, targetXStep)} disabled={rotateOnlyMode}>−</button>
+                    <button className="pose-pm-button" onClick={() => incrementTarget(setTargetXInput, targetXInput, targetXStep)} disabled={rotateOnlyMode}>+</button>
                   </div>
                 </div>
 
                 <div className="pose-input-item">
                   <label className="serial-packet-label">
                     {tr("目標Y", "Target Y")}
-                    <input className="connection-input" value={targetYInput} onChange={(e) => setTargetYInput(e.target.value)} />
+                    <input
+                      className="connection-input"
+                      value={targetYInput}
+                      onChange={(e) => setTargetYInput(e.target.value)}
+                      disabled={rotateOnlyMode}
+                    />
                   </label>
                   <div className="pose-button-group">
-                    <button className="pose-pm-button" onClick={() => decrementTarget(setTargetYInput, targetYInput, targetYStep)}>−</button>
-                    <button className="pose-pm-button" onClick={() => incrementTarget(setTargetYInput, targetYInput, targetYStep)}>+</button>
+                    <button className="pose-pm-button" onClick={() => decrementTarget(setTargetYInput, targetYInput, targetYStep)} disabled={rotateOnlyMode}>−</button>
+                    <button className="pose-pm-button" onClick={() => incrementTarget(setTargetYInput, targetYInput, targetYStep)} disabled={rotateOnlyMode}>+</button>
                   </div>
                 </div>
 
@@ -4690,9 +4722,9 @@ function App() {
               </div>
 
               <div className="pose-actions-row">
-                <button className="connection-button btn-neutral" onClick={applyAutoDriveFromCurrentPose}>{tr("現在値を目標へ", "Use Current as Target")}</button>
+                <button className="connection-button btn-neutral" onClick={applyAutoDriveFromCurrentPose} disabled={rotateOnlyMode}>{tr("現在値を目標へ", "Use Current as Target")}</button>
                 <button className="connection-button btn-neutral" onClick={publishOdomReset} disabled={!operationArmed}>{tr("オドメトリをリセット", "Reset Odometry")}</button>
-                <button className="connection-button serial-send-button btn-send" onClick={publishAutoDriveCommand} disabled={!operationArmed}>{tr("目標座標を送信", "Send Target Pose")}</button>
+                <button className="connection-button serial-send-button btn-send" onClick={() => publishAutoDriveCommand(rotateOnlyMode)} disabled={!operationArmed}>{tr("目標座標を送信", "Send Target Pose")}</button>
               </div>
 
               <p className="connection-hint">{translateRuntimeText(autoDriveCmdInfo)}</p>
@@ -5689,7 +5721,7 @@ function App() {
                   <div className="planner-state-config-list">
                     {plannerStateSequence.map((stateCode, index) => {
                       const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" };
-                      const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 1 };
+                      const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 3 };
                       const odomResetConfig = plannerStateOdomResetConfig[stateCode] || { enabled: false };
                       const stateLabel = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
                       const stateNameConfig = getPlannerStateNameConfig(stateCode);
@@ -5786,6 +5818,17 @@ function App() {
                                     value={poseConfig.yaw}
                                     onChange={(e) => updatePlannerStatePose(stateCode, "yaw", e.target.value)}
                                   />
+                                </label>
+                              </div>
+                              <div className="planner-state-rotate-only-option">
+                                <label className="serial-packet-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={modeConfig.rotateOnly || false}
+                                    onChange={(e) => updatePlannerStateMode(stateCode, null, e.target.checked)}
+                                    disabled={!modeConfig.enabled}
+                                  />
+                                  {tr("回転のみ", "Rotation only")}
                                 </label>
                               </div>
                               <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStatePose(stateCode)}>
