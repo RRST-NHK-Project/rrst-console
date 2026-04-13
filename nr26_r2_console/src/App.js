@@ -852,7 +852,6 @@ function App() {
   const publishPlannerStateSequence = (sequence = plannerStateSequence) => {
     if (!taskStateSequenceRef.current) return;
     taskStateSequenceRef.current.publish({ data: sequence.map((value) => Number(value)) });
-
     if (taskStateSequenceNameRef.current) {
       const publishNames = sequence.map((stateCode) => getPlannerStatePublishName(
         stateCode,
@@ -861,6 +860,16 @@ function App() {
       ));
       taskStateSequenceNameRef.current.publish({ data: publishNames.join(",") });
     }
+  };
+
+  const publishPlannerStateSequenceNames = (sequence = plannerStateSequence) => {
+    if (!taskStateSequenceNameRef.current) return;
+    const publishNames = sequence.map((stateCode) => getPlannerStatePublishName(
+      stateCode,
+      plannerCustomStatePublishNameMap,
+      plannerStateNameOverrides
+    ));
+    taskStateSequenceNameRef.current.publish({ data: publishNames.join(",") });
   };
 
   const publishPlannerStatePose = (stateCode) => {
@@ -3791,6 +3800,7 @@ function App() {
       name: "r2/task_state_sequence_names",
       messageType: "std_msgs/msg/String",
     });
+    publishPlannerStateSequenceNames();
 
     taskStatePoseRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
@@ -5536,6 +5546,9 @@ function App() {
                       <button className="connection-button btn-connect" onClick={() => publishPlannerStateSequence()}>
                         {tr("順序を送信", "Send Sequence")}
                       </button>
+                      <button className="connection-button btn-connect" onClick={() => publishPlannerStateSequenceNames()}>
+                        {tr("状態名を更新", "Update Names")}
+                      </button>
                       <button className="serial-clear-button" onClick={resetPlannerStateSequence}>
                         {tr("順序を初期化", "Reset Sequence")}
                       </button>
@@ -5570,6 +5583,9 @@ function App() {
                   <section className="planner-state-sequence-compact" style={{ marginBottom: 10 }}>
                     <div className="planner-state-config-subheader">
                       <h5>{tr("状態順序 (ドラッグで入替)", "State Sequence (Drag to Reorder)")}</h5>
+                      <span className="planner-state-config-drag-hint">
+                        {tr("並び替え後は『状態名を更新』を押してください", "Press Update Names after reordering")}
+                      </span>
                     </div>
                     <div className="planner-state-sequence-chip-list">
                       {plannerStateSequence.map((stateCode, index) => {
