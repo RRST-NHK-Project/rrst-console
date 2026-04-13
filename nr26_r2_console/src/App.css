@@ -764,11 +764,85 @@
   gap: 10px;
 }
 
+.planner-state-sequence-compact {
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(26, 82, 118, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.planner-state-sequence-chip-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.planner-state-sequence-chip {
+  border: 1px solid rgba(26, 82, 118, 0.2);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--text-main);
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.planner-state-sequence-chip:active {
+  cursor: grabbing;
+}
+
+.planner-state-sequence-chip-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  height: 1.5em;
+  border-radius: 999px;
+  background: rgba(26, 82, 118, 0.1);
+  font-size: 0.72rem;
+}
+
+.planner-state-sequence-chip-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planner-state-sequence-chip-dragging {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.planner-state-sequence-chip-drop-target {
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.18);
+}
+
 .planner-state-config-card {
   padding: 12px;
   border-radius: 12px;
   border: 1px solid rgba(26, 82, 118, 0.12);
   background: rgba(255, 255, 255, 0.9);
+  cursor: grab;
+}
+
+.planner-state-config-card:active {
+  cursor: grabbing;
+}
+
+.planner-state-config-card-dragging {
+  opacity: 0.58;
+}
+
+.planner-state-config-card-drop-target {
+  border-color: rgba(46, 125, 50, 0.7);
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.14);
 }
 
 .planner-state-config-card-header {
@@ -786,9 +860,22 @@
   flex-wrap: wrap;
 }
 
+.planner-state-config-title-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .planner-state-config-card-title h4 {
   margin: 0;
   font-size: 0.98rem;
+}
+
+.planner-state-publish-name {
+  color: var(--text-sub);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .planner-state-config-index {
@@ -809,6 +896,22 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.planner-state-name-edit-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.planner-state-name-edit-grid .serial-packet-label {
+  font-size: 0.78rem;
+}
+
+.planner-state-config-drag-hint {
+  font-size: 0.75rem;
+  color: var(--text-sub);
 }
 
 .planner-state-config-grid {

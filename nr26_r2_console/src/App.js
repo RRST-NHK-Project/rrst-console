@@ -88,11 +88,19 @@ const PLANNER_MODE_LABELS = {
   1: { ja: "自動遷移", en: "Auto" },
 };
 
-const getPlannerStateLabel = (code, language, customStateLabelMap = null) => {
+const getPlannerStateLabel = (code, language, customStateLabelMap = null, stateNameOverrides = null) => {
+  const override = stateNameOverrides ? stateNameOverrides[code] : null;
+  if (override?.labelJa || override?.labelEn) {
+    return language === "ja"
+      ? override.labelJa || override.labelEn
+      : override.labelEn || override.labelJa;
+  }
+
   const customLabel = customStateLabelMap ? customStateLabelMap[code] : null;
   if (customLabel) {
     return customLabel;
   }
+
   const entry = PLANNER_STATE_LABELS[code];
   return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "状態" : "State"} ${code}`;
 };
@@ -110,6 +118,33 @@ const getPlannerModeLabel = (code, language) => {
 const getDriveModeLabel = (code, language) => {
   const entry = DRIVE_MODE_LABELS[code];
   return entry ? (language === "ja" ? entry.ja : entry.en) : `${language === "ja" ? "モード" : "Mode"} ${code}`;
+};
+
+const normalizePlannerPublishName = (value, fallback = "") => {
+  const text = String(value || "").trim();
+  if (!text) {
+    return String(fallback || "").trim();
+  }
+  return text
+    .replace(/[^A-Za-z0-9_\- ]+/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .toUpperCase();
+};
+
+const getPlannerStatePublishName = (code, customStatePublishNameMap = null, stateNameOverrides = null) => {
+  const override = stateNameOverrides ? stateNameOverrides[code] : null;
+  if (override?.publishName) {
+    return override.publishName;
+  }
+
+  const customPublishName = customStatePublishNameMap ? customStatePublishNameMap[code] : null;
+  if (customPublishName) {
+    return customPublishName;
+  }
+
+  const entry = PLANNER_STATE_LABELS[code];
+  return entry ? entry.en : `STATE_${code}`;
 };
 
 const createPlannerStatePoseConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) =>
@@ -242,6 +277,7 @@ function App() {
   const taskCellCommandRef = useRef(null);
   const taskTransitionModeRef = useRef(null);
   const taskStateSequenceRef = useRef(null);
+  const taskStateSequenceNameRef = useRef(null);
   const taskStatePoseRef = useRef(null);
   const taskStateModeRef = useRef(null);
   const taskStateOdomResetRef = useRef(null);
@@ -338,7 +374,9 @@ function App() {
   const [plannerFieldRotationDeg, setPlannerFieldRotationDeg] = useState(180);
   const [plannerAutoSendEnabled, setPlannerAutoSendEnabled] = useState(true);
   const [plannerCustomStates, setPlannerCustomStates] = useState([]);
-  const [plannerNewStateLabelInput, setPlannerNewStateLabelInput] = useState("");
+  const [plannerStateNameOverrides, setPlannerStateNameOverrides] = useState({});
+  const [plannerNewStateJaLabelInput, setPlannerNewStateJaLabelInput] = useState("");
+  const [plannerNewStatePublishNameInput, setPlannerNewStatePublishNameInput] = useState("");
   const [plannerStateSequence, setPlannerStateSequence] = useState(() => [...BUILTIN_PLANNER_STATE_CODES]);
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
@@ -351,6 +389,8 @@ function App() {
   const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
   const [plannerExportsList, setPlannerExportsList] = useState([]);
   const [plannerSelectedExportPath, setPlannerSelectedExportPath] = useState("");
+  const [draggedPlannerStateCode, setDraggedPlannerStateCode] = useState(null);
+  const [plannerDropTargetCode, setPlannerDropTargetCode] = useState(null);
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -456,9 +496,57 @@ function App() {
   const plannerCustomStateLabelMap = Object.fromEntries(
     plannerCustomStates.map((state) => [
       state.code,
-      state.label,
+      state.labelJa,
     ])
   );
+
+  const plannerCustomStatePublishNameMap = Object.fromEntries(
+    plannerCustomStates.map((state) => [
+      state.code,
+      state.publishName,
+    ])
+  );
+
+  const getPlannerStateNameConfig = (stateCode) => {
+    const customState = plannerCustomStates.find((state) => state.code === stateCode);
+    if (customState) {
+      return {
+        labelJa: customState.labelJa || `状態 ${stateCode}`,
+        publishName: normalizePlannerPublishName(customState.publishName, `STATE_${stateCode}`),
+        isBuiltin: false,
+      };
+    }
+
+    const override = plannerStateNameOverrides[stateCode] || {};
+    const builtin = PLANNER_STATE_LABELS[stateCode] || {};
+    return {
+      labelJa: override.labelJa || builtin.ja || `状態 ${stateCode}`,
+      publishName: normalizePlannerPublishName(override.publishName || builtin.en || `STATE_${stateCode}`, `STATE_${stateCode}`),
+      isBuiltin: true,
+    };
+  };
+
+  const updatePlannerStateName = (stateCode, field, value) => {
+    if (BUILTIN_PLANNER_STATE_CODES.includes(stateCode)) {
+      setPlannerStateNameOverrides((prev) => ({
+        ...prev,
+        [stateCode]: {
+          ...prev[stateCode],
+          [field]: value,
+        },
+      }));
+    } else {
+      setPlannerCustomStates((prev) => prev.map((state) => (
+        state.code === stateCode
+          ? {
+            ...state,
+            [field]: value,
+          }
+          : state
+      )));
+    }
+    setPlannerConfigIsDirty(true);
+  };
 
   const plannerAllStateCodes = Array.from(
     new Set([
@@ -764,6 +852,15 @@ function App() {
   const publishPlannerStateSequence = (sequence = plannerStateSequence) => {
     if (!taskStateSequenceRef.current) return;
     taskStateSequenceRef.current.publish({ data: sequence.map((value) => Number(value)) });
+
+    if (taskStateSequenceNameRef.current) {
+      const publishNames = sequence.map((stateCode) => getPlannerStatePublishName(
+        stateCode,
+        plannerCustomStatePublishNameMap,
+        plannerStateNameOverrides
+      ));
+      taskStateSequenceNameRef.current.publish({ data: publishNames.join(",") });
+    }
   };
 
   const publishPlannerStatePose = (stateCode) => {
@@ -895,22 +992,61 @@ function App() {
     setPlannerMffPathInfo(tr("MFF次マス進行を送信（経路終端）", "Sent MFF advance trigger (end of path)"));
   };
 
-  const movePlannerStateSequence = (stateCode, direction) => {
-    setPlannerStateSequence((prevSequence) => {
-      const currentIndex = prevSequence.indexOf(stateCode);
-      if (currentIndex < 0) {
-        return prevSequence;
-      }
+  const reorderPlannerStateSequence = (fromStateCode, toStateCode) => {
+    if (!Number.isFinite(fromStateCode) || !Number.isFinite(toStateCode) || fromStateCode === toStateCode) {
+      return;
+    }
 
-      const nextIndex = currentIndex + direction;
-      if (nextIndex < 0 || nextIndex >= prevSequence.length) {
+    setPlannerStateSequence((prevSequence) => {
+      const fromIndex = prevSequence.indexOf(fromStateCode);
+      const toIndex = prevSequence.indexOf(toStateCode);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
         return prevSequence;
       }
 
       const nextSequence = [...prevSequence];
-      [nextSequence[currentIndex], nextSequence[nextIndex]] = [nextSequence[nextIndex], nextSequence[currentIndex]];
+      const [movedStateCode] = nextSequence.splice(fromIndex, 1);
+      nextSequence.splice(toIndex, 0, movedStateCode);
       return nextSequence;
     });
+  };
+
+  const onPlannerStateDragStart = (event, stateCode) => {
+    setDraggedPlannerStateCode(stateCode);
+    setPlannerDropTargetCode(stateCode);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(stateCode));
+    }
+  };
+
+  const onPlannerStateDragOver = (event, stateCode) => {
+    event.preventDefault();
+    if (draggedPlannerStateCode !== null && draggedPlannerStateCode !== stateCode) {
+      setPlannerDropTargetCode(stateCode);
+    }
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+  };
+
+  const onPlannerStateDrop = (event, targetStateCode) => {
+    event.preventDefault();
+    const rawData = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
+    const sourceStateCode = Number.parseInt(rawData, 10);
+    const fromStateCode = Number.isFinite(sourceStateCode) ? sourceStateCode : draggedPlannerStateCode;
+
+    reorderPlannerStateSequence(fromStateCode, targetStateCode);
+    if (fromStateCode !== null && Number.isFinite(fromStateCode) && fromStateCode !== targetStateCode) {
+      setPlannerStatusText(tr("状態順序を並び替えました", "State order updated"));
+    }
+    setDraggedPlannerStateCode(null);
+    setPlannerDropTargetCode(null);
+  };
+
+  const onPlannerStateDragEnd = () => {
+    setDraggedPlannerStateCode(null);
+    setPlannerDropTargetCode(null);
   };
 
   const resetPlannerStateSequence = () => {
@@ -921,10 +1057,14 @@ function App() {
   };
 
   const addPlannerCustomState = () => {
-    const label = plannerNewStateLabelInput.trim();
+    const labelJa = plannerNewStateJaLabelInput.trim();
+    const publishName = normalizePlannerPublishName(
+      plannerNewStatePublishNameInput,
+      labelJa || `STATE_${Math.max(...BUILTIN_PLANNER_STATE_CODES, ...plannerCustomStates.map((state) => state.code)) + 1}`
+    );
 
-    if (!label) {
-      setPlannerStatusText(tr("ラベルを入力してください", "Please enter a label"));
+    if (!publishName) {
+      setPlannerStatusText(tr("英語の状態名を入力してください", "Please enter an English publish name"));
       return;
     }
 
@@ -936,7 +1076,14 @@ function App() {
     const maxCode = Math.max(...allExistingCodes);
     const code = maxCode + 1;
 
-    const nextCustomStates = [...plannerCustomStates, { code, label }];
+    const nextCustomStates = [
+      ...plannerCustomStates,
+      {
+        code,
+        labelJa: labelJa || `状態 ${code}`,
+        publishName,
+      },
+    ];
     setPlannerCustomStates(nextCustomStates);
     setPlannerStateSequence((prev) => (prev.includes(code) ? prev : [...prev, code]));
     setPlannerStatePoseConfig((prev) => ({
@@ -951,8 +1098,14 @@ function App() {
       ...prev,
       [code]: { enabled: false },
     }));
-    setPlannerNewStateLabelInput("");
-    setPlannerStatusText(tr(`状態「${label}」を追加しました (コード: ${code})`, `State "${label}" added (code: ${code})`));
+    setPlannerNewStateJaLabelInput("");
+    setPlannerNewStatePublishNameInput("");
+    setPlannerStatusText(
+      tr(
+        `状態「${labelJa || `状態 ${code}`}」を追加しました (英語名: ${publishName}, コード: ${code})`,
+        `State "${publishName}" added (display: ${labelJa || `State ${code}`}, code: ${code})`
+      )
+    );
   };
 
   const removePlannerCustomState = (code) => {
@@ -977,7 +1130,8 @@ function App() {
   };
 
   const deletePlannerState = (code) => {
-    const stateLabel = getPlannerStateLabel(code, language, plannerCustomStateLabelMap);
+    const stateLabel = getPlannerStateLabel(code, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
+    const publishName = getPlannerStatePublishName(code, plannerCustomStatePublishNameMap, plannerStateNameOverrides);
     const isBuiltin = BUILTIN_PLANNER_STATE_CODES.includes(code);
     const message = isBuiltin
       ? tr(
@@ -985,8 +1139,8 @@ function App() {
         `Delete default state "${stateLabel}"? This will remove it from the sequence and configuration.`
       )
       : tr(
-        `カスタム状態「${stateLabel}」を削除します。本当に削除しますか？`,
-        `Delete custom state "${stateLabel}"?`
+        `カスタム状態「${stateLabel}」を削除します。本当に削除しますか？ (英語名: ${publishName})`,
+        `Delete custom state "${publishName}"?`
       );
 
     if (!window.confirm(message)) {
@@ -1011,14 +1165,37 @@ function App() {
       if (normalizedCustomStates.some((state) => state.code === code)) {
         return;
       }
-      const label = String(item?.label || item?.labelJa || `状態 ${code}`).trim();
+      const labelJa = String(item?.labelJa || item?.label || `状態 ${code}`).trim();
+      const publishName = normalizePlannerPublishName(
+        item?.publishName || item?.labelEn || item?.label || `STATE_${code}`,
+        `STATE_${code}`
+      );
       normalizedCustomStates.push({
         code,
-        label: label || `状態 ${code}`,
+        labelJa: labelJa || `状態 ${code}`,
+        publishName: publishName || `STATE_${code}`,
       });
     });
 
     normalizedCustomStates.sort((a, b) => a.code - b.code);
+    const importedNameOverrides = parsed?.stateNameOverrides && typeof parsed.stateNameOverrides === "object"
+      ? parsed.stateNameOverrides
+      : {};
+    const normalizedNameOverrides = Object.fromEntries(
+      Object.entries(importedNameOverrides).map(([rawCode, rawValue]) => {
+        const code = Number.parseInt(rawCode, 10);
+        if (!Number.isFinite(code)) {
+          return [rawCode, null];
+        }
+
+        const labelJa = String(rawValue?.labelJa || rawValue?.label || "").trim();
+        const publishName = normalizePlannerPublishName(rawValue?.publishName || rawValue?.labelEn || rawValue?.name, `STATE_${code}`);
+        return [code, {
+          labelJa: labelJa || undefined,
+          publishName: publishName || undefined,
+        }];
+      }).filter(([, value]) => Boolean(value))
+    );
     const validCodes = Array.from(new Set([
       ...BUILTIN_PLANNER_STATE_CODES,
       ...normalizedCustomStates.map((state) => state.code),
@@ -1081,6 +1258,7 @@ function App() {
     }));
 
     setPlannerCustomStates(normalizedCustomStates);
+    setPlannerStateNameOverrides(normalizedNameOverrides);
     setPlannerStateSequence(normalizedSequence);
     setPlannerStatePoseConfig(nextPoseConfig);
     setPlannerStateModeConfig(nextModeConfig);
@@ -1101,8 +1279,15 @@ function App() {
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
-        label: state.label,
+        labelJa: state.labelJa,
+        publishName: state.publishName,
       })),
+      stateNameOverrides: Object.fromEntries(
+        Object.entries(plannerStateNameOverrides).map(([code, config]) => [code, {
+          labelJa: String(config?.labelJa ?? ""),
+          publishName: String(config?.publishName ?? ""),
+        }])
+      ),
       stateSequence: plannerStateSequence.map((code) => Number(code)),
       statePoseConfig: Object.fromEntries(
         allStateCodes.map((code) => {
@@ -1174,8 +1359,15 @@ function App() {
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
-        label: state.label,
+        labelJa: state.labelJa,
+        publishName: state.publishName,
       })),
+      stateNameOverrides: Object.fromEntries(
+        Object.entries(plannerStateNameOverrides).map(([code, config]) => [code, {
+          labelJa: String(config?.labelJa ?? ""),
+          publishName: String(config?.publishName ?? ""),
+        }])
+      ),
       stateSequence: plannerStateSequence.map((code) => Number(code)),
       statePoseConfig: Object.fromEntries(
         allStateCodes.map((code) => {
@@ -1256,6 +1448,26 @@ function App() {
   };
 
   const loadLatestPlannerStateConfigFromBackend = async () => {
+    let loaded = false;
+
+    try {
+      const response = await fetch(`${backendBaseUrl}/api/planner-state-config/latest?category=planner_state_config`);
+      if (response.ok) {
+        const payload = await response.json();
+        if (payload?.found && payload?.data) {
+          applyPlannerStateConfigData(payload.data, { source: "startup" });
+          loaded = true;
+          return;
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to auto-load latest planner state configuration from YAML endpoint:", error);
+    }
+
+    if (loaded) {
+      return;
+    }
+
     try {
       const response = await fetch(`${backendBaseUrl}/api/json-exports/latest?category=planner_state_config`);
       if (!response.ok) {
@@ -1347,7 +1559,7 @@ function App() {
     publishPlannerTransitionMode(nextMode);
   };
 
-  const plannerStateLabel = getPlannerStateLabel(plannerStateCode, language, plannerCustomStateLabelMap);
+  const plannerStateLabel = getPlannerStateLabel(plannerStateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
   const plannerColorLabel = getPlannerColorLabel(plannerColorCode, language);
   const plannerModeLabel = getPlannerModeLabel(plannerTransitionModeCode, language);
   const plannerLayoutRed = getMffLayout(1);
@@ -3574,6 +3786,12 @@ function App() {
       messageType: "std_msgs/msg/Int32MultiArray",
     });
 
+    taskStateSequenceNameRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state_sequence_names",
+      messageType: "std_msgs/msg/String",
+    });
+
     taskStatePoseRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r2/task_state_pose",
@@ -3832,7 +4050,7 @@ function App() {
   // Track if planner configuration is dirty
   useEffect(() => {
     setPlannerConfigIsDirty(true);
-  }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerCustomStates]);
+  }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerCustomStates, plannerStateNameOverrides]);
 
   // Register beforeunload warning for unsaved changes
   useEffect(() => {
@@ -5125,7 +5343,7 @@ function App() {
                     </p>
                     <div className="planner-state-buttons">
                       {plannerStateSequence.map((stateCode, index) => {
-                        const label = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap);
+                        const label = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
                         const isSelected = plannerStateCode === stateCode;
                         return (
                           <button
@@ -5349,6 +5567,36 @@ function App() {
                     )}
                   </p>
 
+                  <section className="planner-state-sequence-compact" style={{ marginBottom: 10 }}>
+                    <div className="planner-state-config-subheader">
+                      <h5>{tr("状態順序 (ドラッグで入替)", "State Sequence (Drag to Reorder)")}</h5>
+                    </div>
+                    <div className="planner-state-sequence-chip-list">
+                      {plannerStateSequence.map((stateCode, index) => {
+                        const label = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
+                        const publishName = getPlannerStatePublishName(stateCode, plannerCustomStatePublishNameMap, plannerStateNameOverrides);
+                        const isDragged = draggedPlannerStateCode === stateCode;
+                        const isDropTarget = plannerDropTargetCode === stateCode && draggedPlannerStateCode !== stateCode;
+                        return (
+                          <button
+                            key={`planner-state-sequence-chip-${stateCode}`}
+                            type="button"
+                            draggable
+                            onDragStart={(event) => onPlannerStateDragStart(event, stateCode)}
+                            onDragOver={(event) => onPlannerStateDragOver(event, stateCode)}
+                            onDrop={(event) => onPlannerStateDrop(event, stateCode)}
+                            onDragEnd={onPlannerStateDragEnd}
+                            className={`planner-state-sequence-chip ${isDragged ? "planner-state-sequence-chip-dragging" : ""} ${isDropTarget ? "planner-state-sequence-chip-drop-target" : ""}`}
+                            title={`${tr("ドラッグして順序変更", "Drag to reorder")} / ${publishName}`}
+                          >
+                            <span className="planner-state-sequence-chip-index">{index + 1}</span>
+                            <span className="planner-state-sequence-chip-label">{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
                   <section className="planner-state-config-subcard" style={{ marginBottom: 10 }}>
                     <div className="planner-state-config-subheader">
                       <h5>{tr("保存済み設定の読み込み", "Load Saved Configuration")}</h5>
@@ -5399,12 +5647,21 @@ function App() {
                     </div>
                     <div className="planner-state-config-fields">
                       <label className="serial-packet-label">
-                        {tr("ラベル", "Label")}
+                        {tr("表示名(日本語)", "Display Name (JP)")}
                         <input
                           className="connection-input"
-                          value={plannerNewStateLabelInput}
-                          onChange={(e) => setPlannerNewStateLabelInput(e.target.value)}
-                          placeholder={tr("例: 状態A", "e.g. Stage A")}
+                          value={plannerNewStateJaLabelInput}
+                          onChange={(e) => setPlannerNewStateJaLabelInput(e.target.value)}
+                          placeholder={tr("例: 新状態", "e.g. New State")}
+                        />
+                      </label>
+                      <label className="serial-packet-label">
+                        {tr("Publish名(英語)", "Publish Name (EN)")}
+                        <input
+                          className="connection-input"
+                          value={plannerNewStatePublishNameInput}
+                          onChange={(e) => setPlannerNewStatePublishNameInput(e.target.value)}
+                          placeholder={tr("例: NEW_STATE", "e.g. NEW_STATE")}
                         />
                       </label>
                     </div>
@@ -5418,30 +5675,31 @@ function App() {
                       const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" };
                       const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 1 };
                       const odomResetConfig = plannerStateOdomResetConfig[stateCode] || { enabled: false };
-                      const stateLabel = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap);
+                      const stateLabel = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
+                      const stateNameConfig = getPlannerStateNameConfig(stateCode);
+                      const isDragged = draggedPlannerStateCode === stateCode;
+                      const isDropTarget = plannerDropTargetCode === stateCode && draggedPlannerStateCode !== stateCode;
 
                       return (
-                        <article key={`planner-state-config-${stateCode}`} className="planner-state-config-card">
+                        <article
+                          key={`planner-state-config-${stateCode}`}
+                          draggable
+                          onDragStart={(event) => onPlannerStateDragStart(event, stateCode)}
+                          onDragOver={(event) => onPlannerStateDragOver(event, stateCode)}
+                          onDrop={(event) => onPlannerStateDrop(event, stateCode)}
+                          onDragEnd={onPlannerStateDragEnd}
+                          className={`planner-state-config-card ${isDragged ? "planner-state-config-card-dragging" : ""} ${isDropTarget ? "planner-state-config-card-drop-target" : ""}`}
+                        >
                           <div className="planner-state-config-card-header">
                             <div className="planner-state-config-card-title">
                               <span className="planner-state-config-index">#{index + 1}</span>
-                              <h4>{stateLabel}</h4>
+                              <div className="planner-state-config-title-stack">
+                                <h4>{stateLabel}</h4>
+                                <span className="planner-state-publish-name">{stateNameConfig.publishName}</span>
+                              </div>
                             </div>
                             <div className="planner-state-config-reorder">
-                              <button
-                                className="connection-button btn-neutral"
-                                onClick={() => movePlannerStateSequence(stateCode, -1)}
-                                disabled={index === 0}
-                              >
-                                {tr("上へ", "Up")}
-                              </button>
-                              <button
-                                className="connection-button btn-neutral"
-                                onClick={() => movePlannerStateSequence(stateCode, 1)}
-                                disabled={index === plannerStateSequence.length - 1}
-                              >
-                                {tr("下へ", "Down")}
-                              </button>
+                              <span className="planner-state-config-drag-hint">{tr("ドラッグで並び替え", "Drag to reorder")}</span>
                               <button
                                 className="serial-clear-button"
                                 onClick={() => deletePlannerState(stateCode)}
@@ -5450,6 +5708,25 @@ function App() {
                                 {tr("削除", "Delete")}
                               </button>
                             </div>
+                          </div>
+
+                          <div className="planner-state-name-edit-grid">
+                            <label className="serial-packet-label">
+                              {tr("表示名(日本語)", "Display Name (JP)")}
+                              <input
+                                className="connection-input"
+                                value={stateNameConfig.labelJa}
+                                onChange={(e) => updatePlannerStateName(stateCode, "labelJa", e.target.value)}
+                              />
+                            </label>
+                            <label className="serial-packet-label">
+                              {tr("Publish名(英語)", "Publish Name (EN)")}
+                              <input
+                                className="connection-input"
+                                value={stateNameConfig.publishName}
+                                onChange={(e) => updatePlannerStateName(stateCode, "publishName", normalizePlannerPublishName(e.target.value, stateNameConfig.publishName))}
+                              />
+                            </label>
                           </div>
 
                           <div className="planner-state-config-grid">

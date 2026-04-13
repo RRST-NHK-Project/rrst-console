@@ -3,6 +3,13 @@ const fs = require("fs");
 const { execSync, spawn } = require("child_process");
 const path = require("path");
 
+let yaml = null;
+try {
+    yaml = require("js-yaml");
+} catch (error) {
+    yaml = null;
+}
+
 const BACKEND_PORT = Number.parseInt(process.env.CONSOLE_BACKEND_PORT || "3031", 10);
 const CONSOLE_DIR = path.resolve(__dirname, "..");
 const APP_JS_DIR = path.resolve(CONSOLE_DIR, "src");
@@ -385,6 +392,91 @@ const findLatestJsonExport = (category) => {
     return null;
 };
 
+const listExportFilesByCategory = (category, extensions = [".json"]) => {
+    const safeCategory = sanitizeSegment(category, "export");
+    const categoryFolder = path.join(APP_JS_DIR, `${safeCategory}_exports`);
+    if (!fs.existsSync(categoryFolder)) {
+        return [];
+    }
+
+    const normalizedExtensions = new Set(
+        extensions.map((ext) => String(ext || "").toLowerCase())
+    );
+    const files = [];
+
+    const dateFolders = fs.readdirSync(categoryFolder).sort((a, b) => b.localeCompare(a));
+    for (const dateFolder of dateFolders) {
+        const dateDir = path.join(categoryFolder, dateFolder);
+        if (!fs.statSync(dateDir).isDirectory()) {
+            continue;
+        }
+
+        const fileNames = fs.readdirSync(dateDir).sort((a, b) => b.localeCompare(a));
+        for (const fileName of fileNames) {
+            const ext = path.extname(fileName).toLowerCase();
+            if (!normalizedExtensions.has(ext)) {
+                continue;
+            }
+            const filePath = path.join(dateDir, fileName);
+            const stat = fs.statSync(filePath);
+            files.push({
+                filePath,
+                fileName,
+                ext,
+                mtimeMs: stat.mtimeMs,
+            });
+        }
+    }
+
+    files.sort((a, b) => {
+        if (b.mtimeMs !== a.mtimeMs) {
+            return b.mtimeMs - a.mtimeMs;
+        }
+        return b.filePath.localeCompare(a.filePath);
+    });
+    return files;
+};
+
+const parsePlannerStateConfigFile = (filePath) => {
+    const text = fs.readFileSync(filePath, "utf8");
+    const ext = path.extname(filePath).toLowerCase();
+
+    if (ext === ".json") {
+        return JSON.parse(text);
+    }
+
+    if (ext === ".yaml" || ext === ".yml") {
+        if (!yaml) {
+            throw new Error("js-yaml is not installed");
+        }
+        const parsed = yaml.load(text);
+        if (!parsed || typeof parsed !== "object") {
+            throw new Error("yaml root must be an object");
+        }
+        return parsed;
+    }
+
+    throw new Error(`unsupported config extension: ${ext}`);
+};
+
+const findLatestPlannerStateConfig = (category) => {
+    const files = listExportFilesByCategory(category, [".yaml", ".yml", ".json"]);
+    for (const file of files) {
+        try {
+            const parsed = parsePlannerStateConfigFile(file.filePath);
+            return {
+                fileName: file.fileName,
+                filePath: file.filePath,
+                data: parsed,
+                format: file.ext === ".json" ? "json" : "yaml",
+            };
+        } catch (error) {
+            // Ignore broken files and continue scanning older files.
+        }
+    }
+    return null;
+};
+
 const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -618,6 +710,31 @@ const server = http.createServer((req, res) => {
                 error: String(error?.message || error),
             });
         }
+        return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/planner-state-config/latest") {
+        const category = url.searchParams.get("category") || "planner_state_config";
+
+        const latest = findLatestPlannerStateConfig(category);
+        if (!latest) {
+            jsonResponse(res, 404, {
+                found: false,
+                category,
+                message: "latest planner state config not found",
+            });
+            return;
+        }
+
+        jsonResponse(res, 200, {
+            found: true,
+            category,
+            fileName: latest.fileName,
+            filePath: latest.filePath,
+            format: latest.format,
+            data: latest.data,
+            yamlEnabled: Boolean(yaml),
+        });
         return;
     }
 
