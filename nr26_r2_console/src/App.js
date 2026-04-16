@@ -670,7 +670,7 @@ function App() {
     if (page === "actuator-monitor") return tr("アクチュエータ監視", "Actuator Monitor");
     if (page === "topic") return tr("トピック監視", "Topics");
     if (page === "camera") return tr("カメラ映像", "Camera");
-    if (page === "cube-detection") return tr("立方体検知", "Cube Detection");
+    if (page === "cube-detection") return tr("KFS位置・姿勢推定", "KFS Position/Orientation");
     if (page === "serial-bridge") return "Serial Bridge";
     if (page === "shutdown") return tr("強制停止", "Shutdown");
     if (page === "settings") return tr("設定", "Settings");
@@ -6583,7 +6583,7 @@ function App() {
 
           {isPageActive("cube-detection") && (
             <section className="topic-panel">
-              <h2 className="serial-packet-title">{tr("立方体検知モニタ", "Cube Detection Monitor")}</h2>
+              <h2 className="serial-packet-title">{tr("KFS位置・姿勢推定モニタ", "KFS Position/Orientation Monitor")}</h2>
               <p className="serial-packet-hint">
                 {tr(
                   "深度画像の中央近傍から立方体候補を検出し、検出状態とデバッグ画像を表示します。",
