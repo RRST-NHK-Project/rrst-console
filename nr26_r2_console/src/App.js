@@ -455,6 +455,7 @@ function App() {
     widthNorm: 0,
     heightNorm: 0,
     depthM: 0,
+    faceYawDeg: 0,
     score: 0,
     areaPx: 0,
   });
@@ -3764,6 +3765,7 @@ function App() {
         widthNorm: Number(data[3]) || 0,
         heightNorm: Number(data[4]) || 0,
         depthM: Number(data[5]) || 0,
+        faceYawDeg: Number(data[8]) || 0,
         score: Number(data[6]) || 0,
         areaPx: Math.round(Number(data[7]) || 0),
       });
@@ -6664,6 +6666,10 @@ function App() {
                     <div className="pose-current-item">
                       <span>{tr("深度 [m]", "Depth [m]")}</span>
                       <strong>{cubeInfo.depthM.toFixed(3)}</strong>
+                    </div>
+                    <div className="pose-current-item">
+                      <span>{tr("YAW角 [deg]", "Yaw [deg]")}</span>
+                      <strong>{cubeInfo.faceYawDeg.toFixed(1)}</strong>
                     </div>
                     <div className="pose-current-item">
                       <span>{tr("信頼度", "Score")}</span>
