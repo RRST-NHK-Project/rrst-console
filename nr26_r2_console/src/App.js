@@ -212,6 +212,26 @@ const getMffLayout = (colorCode) => {
   return MFF_LAYOUT_RED;
 };
 
+const CUBE_DETECTION_MODE = {
+  AKAZE: "akaze",
+  NORMAL: "normal",
+};
+
+const getCubeDebugDefaultTopic = (mode) =>
+  mode === CUBE_DETECTION_MODE.AKAZE
+    ? "/kfs_akaze_detection/debug_image"
+    : "/cube_detection/debug_image";
+
+const getCubeDetectedTopic = (mode) =>
+  mode === CUBE_DETECTION_MODE.AKAZE
+    ? "/kfs_akaze_detection/detected"
+    : "/cube_detection/detected";
+
+const getCubeInfoTopic = (mode) =>
+  mode === CUBE_DETECTION_MODE.AKAZE
+    ? "/kfs_akaze_detection/result"
+    : "/cube_detection/info";
+
 const parseMffPathInput = (rawInput) => {
   const mapping = { "1E": 13, "2E": 14, "3E": 15, "1X": 16, "2X": 17, "3X": 18 };
   return String(rawInput || "")
@@ -436,8 +456,9 @@ function App() {
   const [cameraTopicName, setCameraTopicName] = useState("/camera/image_raw");
   const [cameraStreamRunning, setCameraStreamRunning] = useState(false);
   const [cameraStreamInfo, setCameraStreamInfo] = useState("未開始");
-  const [cubeDebugTopicInput, setCubeDebugTopicInput] = useState("/cube_detection/debug_image");
-  const [cubeDebugTopicName, setCubeDebugTopicName] = useState("/cube_detection/debug_image");
+  const [cubeDetectionMode, setCubeDetectionMode] = useState(CUBE_DETECTION_MODE.AKAZE);
+  const [cubeDebugTopicInput, setCubeDebugTopicInput] = useState(getCubeDebugDefaultTopic(CUBE_DETECTION_MODE.AKAZE));
+  const [cubeDebugTopicName, setCubeDebugTopicName] = useState(getCubeDebugDefaultTopic(CUBE_DETECTION_MODE.AKAZE));
   const [cubeDebugStreamRunning, setCubeDebugStreamRunning] = useState(false);
   const [cubeDebugStreamInfo, setCubeDebugStreamInfo] = useState("未開始");
   const [cubeFrameUrl, setCubeFrameUrl] = useState("");
@@ -450,6 +471,13 @@ function App() {
   const [cubeDetected, setCubeDetected] = useState(false);
   const [cubeUpdatedAt, setCubeUpdatedAt] = useState("");
   const [cubeInfo, setCubeInfo] = useState({
+    mapX: 0,
+    mapY: 0,
+    yawDeg: 0,
+    scale: 1,
+    matchCount: 0,
+    inlierRatio: 0,
+    depthMm: Number.NaN,
     cxNorm: 0,
     cyNorm: 0,
     widthNorm: 0,
@@ -623,9 +651,45 @@ function App() {
   };
 
   const applyCubeDebugTopicName = () => {
-    const nextTopic = cubeDebugTopicInput.trim() || "/cube_detection/debug_image";
+    const nextTopic = cubeDebugTopicInput.trim() || getCubeDebugDefaultTopic(cubeDetectionMode);
     setCubeDebugTopicName(nextTopic);
     console.log("Cube debug topic updated to:", nextTopic);
+  };
+
+  const applyCubeDetectionMode = (mode) => {
+    const nextMode = mode === CUBE_DETECTION_MODE.NORMAL ? CUBE_DETECTION_MODE.NORMAL : CUBE_DETECTION_MODE.AKAZE;
+    setCubeDetectionMode(nextMode);
+
+    const nextDebugTopic = getCubeDebugDefaultTopic(nextMode);
+    setCubeDebugTopicInput(nextDebugTopic);
+    setCubeDebugTopicName(nextDebugTopic);
+    setCubeDebugStreamInfo(
+      nextMode === CUBE_DETECTION_MODE.AKAZE
+        ? tr("AKAZEモードに切替しました", "Switched to AKAZE mode")
+        : tr("通常キューブ検知モードに切替しました", "Switched to standard cube mode")
+    );
+
+    setCubeDetected(false);
+    setCubeUpdatedAt("");
+    setCubeInfo({
+      mapX: 0,
+      mapY: 0,
+      yawDeg: 0,
+      scale: 1,
+      matchCount: 0,
+      inlierRatio: 0,
+      depthMm: Number.NaN,
+      cxNorm: 0,
+      cyNorm: 0,
+      widthNorm: 0,
+      heightNorm: 0,
+      depthM: 0,
+      faceYawDeg: 0,
+      score: 0,
+      areaPx: 0,
+    });
+
+    stopCubeDebugStream();
   };
 
   const MAX_ACTIVE_PAGES = multiTabMode ? 2 : 1;
@@ -3739,7 +3803,7 @@ function App() {
 
     const cubeDetectedTopic = new ROSLIB.Topic({
       ros: rosRef.current,
-      name: "/cube_detection/detected",
+      name: getCubeDetectedTopic(cubeDetectionMode),
       messageType: "std_msgs/msg/Bool",
     });
     cubeDetectedTopic.subscribe((msg) => {
@@ -3749,17 +3813,51 @@ function App() {
 
     const cubeInfoTopic = new ROSLIB.Topic({
       ros: rosRef.current,
-      name: "/cube_detection/info",
+      name: getCubeInfoTopic(cubeDetectionMode),
       messageType: "std_msgs/msg/Float32MultiArray",
     });
     cubeInfoTopic.subscribe((msg) => {
       const data = Array.isArray(msg?.data) ? msg.data : [];
+      if (cubeDetectionMode === CUBE_DETECTION_MODE.AKAZE) {
+        if (data.length < 8) {
+          return;
+        }
+
+        setCubeDetected(Boolean(data[0]));
+        setCubeInfo({
+          mapX: Number(data[1]) || 0,
+          mapY: Number(data[2]) || 0,
+          yawDeg: Number(data[3]) || 0,
+          scale: Number(data[4]) || 0,
+          matchCount: Math.round(Number(data[5]) || 0),
+          inlierRatio: Number(data[6]) || 0,
+          depthMm: Number(data[7]),
+          cxNorm: 0,
+          cyNorm: 0,
+          widthNorm: 0,
+          heightNorm: 0,
+          depthM: 0,
+          faceYawDeg: 0,
+          score: 0,
+          areaPx: 0,
+        });
+        setCubeUpdatedAt(new Date().toLocaleTimeString());
+        return;
+      }
+
       if (data.length < 8) {
         return;
       }
 
       setCubeDetected(Boolean(data[0]));
       setCubeInfo({
+        mapX: 0,
+        mapY: 0,
+        yawDeg: Number(data[8]) || 0,
+        scale: 1,
+        matchCount: 0,
+        inlierRatio: Number(data[6]) || 0,
+        depthMm: Number(data[5]) * 1000.0,
         cxNorm: Number(data[1]) || 0,
         cyNorm: Number(data[2]) || 0,
         widthNorm: Number(data[3]) || 0,
@@ -4000,7 +4098,7 @@ function App() {
       stopTopicEcho();
       if (rosRef.current) rosRef.current.close();
     };
-  }, [rosUrl, joyTopicName, virtualOdomTopicName, wallAngleTopicName]);
+  }, [rosUrl, joyTopicName, virtualOdomTopicName, wallAngleTopicName, cubeDetectionMode]);
 
   // Actuator Monitor subscriptions
   useEffect(() => {
@@ -6585,11 +6683,31 @@ function App() {
             <section className="topic-panel">
               <h2 className="serial-packet-title">{tr("KFS位置・姿勢推定モニタ", "KFS Position/Orientation Monitor")}</h2>
               <p className="serial-packet-hint">
-                {tr(
-                  "深度画像の中央近傍から立方体候補を検出し、検出状態とデバッグ画像を表示します。",
-                  "Detects a cube candidate near image center from depth image and displays status with debug frames."
-                )}
+                {cubeDetectionMode === CUBE_DETECTION_MODE.AKAZE
+                  ? tr(
+                    "AKAZE特徴マッチングでKFS位置・姿勢を推定し、結果とデバッグ画像を表示します。",
+                    "Estimates KFS position/orientation by AKAZE feature matching and shows results with debug frames."
+                  )
+                  : tr(
+                    "通常の立方体検知結果を表示します。",
+                    "Shows standard cube detection results."
+                  )}
               </p>
+
+              <div className="topic-select-row camera-preset-row">
+                <button
+                  className={`connection-button ${cubeDetectionMode === CUBE_DETECTION_MODE.AKAZE ? "btn-send" : "btn-connect"}`}
+                  onClick={() => applyCubeDetectionMode(CUBE_DETECTION_MODE.AKAZE)}
+                >
+                  {tr("AKAZE", "AKAZE")}
+                </button>
+                <button
+                  className={`connection-button ${cubeDetectionMode === CUBE_DETECTION_MODE.NORMAL ? "btn-send" : "btn-connect"}`}
+                  onClick={() => applyCubeDetectionMode(CUBE_DETECTION_MODE.NORMAL)}
+                >
+                  {tr("通常キューブ", "Normal Cube")}
+                </button>
+              </div>
 
               <div className="topic-select-row">
                 <input
@@ -6599,7 +6717,7 @@ function App() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") applyCubeDebugTopicName();
                   }}
-                  placeholder="/cube_detection/debug_image"
+                  placeholder={getCubeDebugDefaultTopic(cubeDetectionMode)}
                 />
                 <button className="connection-button btn-connect" onClick={applyCubeDebugTopicName}>
                   {tr("更新", "Apply")}
@@ -6615,6 +6733,9 @@ function App() {
               <p className="connection-hint">
                 {translateRuntimeText(cubeDebugStreamInfo)}
                 {cubeDebugStreamRunning ? ` | topic: ${cubeDebugTopicName}` : ""}
+              </p>
+              <p className="connection-hint">
+                {tr("検出トピック", "Detected topic")}: {getCubeDetectedTopic(cubeDetectionMode)} | {tr("情報トピック", "Info topic")}: {getCubeInfoTopic(cubeDetectionMode)}
               </p>
 
               <div className="pose-overview-grid">
@@ -6647,38 +6768,73 @@ function App() {
                       <span>{tr("検出", "Detected")}</span>
                       <strong>{cubeDetected ? tr("YES", "YES") : tr("NO", "NO")}</strong>
                     </div>
-                    <div className="pose-current-item">
-                      <span>{tr("中心X [norm]", "Center X [norm]")}</span>
-                      <strong>{cubeInfo.cxNorm.toFixed(3)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("中心Y [norm]", "Center Y [norm]")}</span>
-                      <strong>{cubeInfo.cyNorm.toFixed(3)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("幅 [norm]", "Width [norm]")}</span>
-                      <strong>{cubeInfo.widthNorm.toFixed(3)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("高さ [norm]", "Height [norm]")}</span>
-                      <strong>{cubeInfo.heightNorm.toFixed(3)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("深度 [m]", "Depth [m]")}</span>
-                      <strong>{cubeInfo.depthM.toFixed(3)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("YAW角 [deg]", "Yaw [deg]")}</span>
-                      <strong>{cubeInfo.faceYawDeg.toFixed(1)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("信頼度", "Score")}</span>
-                      <strong>{cubeInfo.score.toFixed(3)}</strong>
-                    </div>
-                    <div className="pose-current-item">
-                      <span>{tr("面積 [px]", "Area [px]")}</span>
-                      <strong>{cubeInfo.areaPx}</strong>
-                    </div>
+                    {cubeDetectionMode === CUBE_DETECTION_MODE.AKAZE ? (
+                      <>
+                        <div className="pose-current-item">
+                          <span>{tr("マップX [px]", "Map X [px]")}</span>
+                          <strong>{cubeInfo.mapX.toFixed(1)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("マップY [px]", "Map Y [px]")}</span>
+                          <strong>{cubeInfo.mapY.toFixed(1)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("YAW角 [deg]", "Yaw [deg]")}</span>
+                          <strong>{cubeInfo.yawDeg.toFixed(1)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("スケール", "Scale")}</span>
+                          <strong>{cubeInfo.scale.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("良好マッチ数", "Good Matches")}</span>
+                          <strong>{cubeInfo.matchCount}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("インライア率", "Inlier Ratio")}</span>
+                          <strong>{cubeInfo.inlierRatio.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("深度 [mm]", "Depth [mm]")}</span>
+                          <strong>{Number.isFinite(cubeInfo.depthMm) ? cubeInfo.depthMm.toFixed(1) : "-"}</strong>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="pose-current-item">
+                          <span>{tr("中心X [norm]", "Center X [norm]")}</span>
+                          <strong>{cubeInfo.cxNorm.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("中心Y [norm]", "Center Y [norm]")}</span>
+                          <strong>{cubeInfo.cyNorm.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("幅 [norm]", "Width [norm]")}</span>
+                          <strong>{cubeInfo.widthNorm.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("高さ [norm]", "Height [norm]")}</span>
+                          <strong>{cubeInfo.heightNorm.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("深度 [m]", "Depth [m]")}</span>
+                          <strong>{cubeInfo.depthM.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("YAW角 [deg]", "Yaw [deg]")}</span>
+                          <strong>{cubeInfo.faceYawDeg.toFixed(1)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("信頼度", "Score")}</span>
+                          <strong>{cubeInfo.score.toFixed(3)}</strong>
+                        </div>
+                        <div className="pose-current-item">
+                          <span>{tr("面積 [px]", "Area [px]")}</span>
+                          <strong>{cubeInfo.areaPx}</strong>
+                        </div>
+                      </>
+                    )}
                     <div className="pose-current-item">
                       <span>{tr("更新時刻", "Updated")}</span>
                       <strong>{cubeUpdatedAt || "-"}</strong>
