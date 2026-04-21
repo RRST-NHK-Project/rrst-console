@@ -293,6 +293,7 @@ const getMffCellLabel = (cellNumber, language = "ja") => {
 const buildMffPathTextFromCells = (cells = []) => cells.map((cell) => getMffCellLabel(cell)).join(",");
 
 const PLANNER_FIELD_ROTATION_STEP_DEG = 90;
+const UI_LAYOUT_SETTINGS_CATEGORY = "ui_layout_settings";
 
 function App() {
   const rosRef = useRef(null);
@@ -382,6 +383,9 @@ function App() {
     "shutdown",
     "settings",
   ];
+  const [visiblePages, setVisiblePages] = useState(() =>
+    Object.fromEntries(pageOrder.map((page) => [page, true]))
+  );
   const [joyTopicName, setJoyTopicName] = useState("joy");
   const [joyTopicInput, setJoyTopicInput] = useState("joy");
   const [virtualOdomTopicInput, setVirtualOdomTopicInput] = useState("odom_xy_yaw");
@@ -709,9 +713,19 @@ function App() {
 
   const MAX_ACTIVE_PAGES = multiTabMode ? 2 : 1;
 
-  const isPageActive = (page) => activePages.includes(page);
+  const isPageVisible = (page) => {
+    if (page === "settings") {
+      return true;
+    }
+    return visiblePages[page] !== false;
+  };
+
+  const isPageActive = (page) => isPageVisible(page) && activePages.includes(page);
 
   const togglePage = (page) => {
+    if (!isPageVisible(page)) {
+      return;
+    }
     setActivePages((prev) => {
       if (!multiTabMode) {
         return prev[0] === page ? prev : [page];
@@ -727,14 +741,69 @@ function App() {
   };
 
   const openOnlyPage = (page) => {
+    if (!isPageVisible(page)) {
+      return;
+    }
     setActivePages([page]);
   };
 
   useEffect(() => {
-    if (!multiTabMode) {
-      setActivePages((prev) => (prev.length > 0 ? [prev[0]] : ["controller"]));
+    const visibleOrder = pageOrder.filter((page) => isPageVisible(page));
+    const fallbackPage = visibleOrder[0] || "settings";
+
+    setActivePages((prev) => {
+      const filtered = prev.filter((page) => visibleOrder.includes(page));
+      if (filtered.length === 0) {
+        return [fallbackPage];
+      }
+      return multiTabMode ? filtered.slice(0, 2) : [filtered[0]];
+    });
+  }, [multiTabMode, visiblePages]);
+
+  const togglePageVisibility = (page) => {
+    if (page === "settings") {
+      return;
     }
-  }, [multiTabMode]);
+    setVisiblePages((prev) => ({
+      ...prev,
+      [page]: !(prev[page] !== false),
+    }));
+  };
+
+  const buildUiLayoutSettingsData = () => ({
+    version: 1,
+    multiTabMode,
+    visiblePages: Object.fromEntries(
+      pageOrder.map((page) => [page, page === "settings" ? true : visiblePages[page] !== false])
+    ),
+  });
+
+  const applyUiLayoutSettingsData = (rawData) => {
+    if (!rawData || typeof rawData !== "object") {
+      return false;
+    }
+
+    if (typeof rawData.multiTabMode === "boolean") {
+      setMultiTabMode(rawData.multiTabMode);
+    }
+
+    if (rawData.visiblePages && typeof rawData.visiblePages === "object") {
+      setVisiblePages((prev) => {
+        const next = { ...prev };
+        pageOrder.forEach((page) => {
+          if (page === "settings") {
+            next[page] = true;
+            return;
+          }
+          const saved = rawData.visiblePages[page];
+          next[page] = typeof saved === "boolean" ? saved : true;
+        });
+        return next;
+      });
+    }
+
+    return true;
+  };
 
   const getPageLabel = (page) => {
     if (page === "controller") return tr("コントローラ操作", "Controller");
@@ -1684,6 +1753,28 @@ function App() {
     loadLatestPlannerStateConfigFromBackend();
   }, [backendBaseUrl]);
 
+  const loadUiLayoutSettingsFromBackend = async () => {
+    try {
+      const response = await fetch(`${backendBaseUrl}/api/json-exports/latest?category=${UI_LAYOUT_SETTINGS_CATEGORY}`);
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json();
+      if (!payload?.found || !payload?.data) {
+        return;
+      }
+
+      applyUiLayoutSettingsData(payload.data);
+    } catch (error) {
+      console.warn("Failed to load UI layout settings:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadUiLayoutSettingsFromBackend();
+  }, [backendBaseUrl]);
+
   const updatePlannerStatePose = (stateCode, key, value) => {
     setPlannerStatePoseConfig((prev) => ({
       ...prev,
@@ -2187,6 +2278,7 @@ function App() {
   const applySettingsValues = async () => {
     applyRosEndpoint();
     applyJoyTopicName();
+    await saveJsonExportToAppDirectory(UI_LAYOUT_SETTINGS_CATEGORY, buildUiLayoutSettingsData());
     await refreshSerialBridgeLogs();
     setSerialBridgeInfo("設定を適用しました");
   };
@@ -4289,23 +4381,6 @@ function App() {
     setPlannerConfigIsDirty(true);
   }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerStateWaitConfig, plannerCustomStates, plannerStateNameOverrides]);
 
-  // Register beforeunload warning for unsaved changes
-  useEffect(() => {
-    const handleBeforeUnload = (event) => {
-      if (!plannerConfigIsDirty) {
-        return;
-      }
-      event.preventDefault();
-      event.returnValue = tr(
-        "未保存の設定変更があります。本当にページを閉じますか？",
-        "You have unsaved configuration changes. Are you sure?"
-      );
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [plannerConfigIsDirty]);
-
   if (frontendForceStopped) {
     return (
       <div className="console-page">
@@ -4515,7 +4590,7 @@ function App() {
         </p>
 
         <section className="page-switch-row">
-          {pageOrder.map((page) => (
+          {pageOrder.filter((page) => isPageVisible(page)).map((page) => (
             <button
               key={`page-tab-${page}`}
               className={`page-switch-button ${isPageActive(page) ? "page-switch-active" : ""}`}
@@ -7165,6 +7240,23 @@ function App() {
                     >
                       {serialBridgeLogRealtimeEnabled ? tr("ログ自動更新: ON", "Auto Log: ON") : tr("ログ自動更新: OFF", "Auto Log: OFF")}
                     </button>
+                  </div>
+                </section>
+
+                <section className="serial-bridge-card">
+                  <h3 className="serial-bridge-title">{tr("タブ表示設定", "Tab Visibility")}</h3>
+                  <div className="serial-bridge-list">
+                    {pageOrder.map((page) => (
+                      <button
+                        key={`tab-visibility-${page}`}
+                        className={`toggle-button ${isPageVisible(page) ? "toggle-on" : "toggle-off"}`}
+                        onClick={() => togglePageVisibility(page)}
+                        disabled={page === "settings"}
+                        title={page === "settings" ? tr("設定タブは常に表示されます", "Settings tab is always visible") : ""}
+                      >
+                        {getPageLabel(page)}: {isPageVisible(page) ? tr("表示", "Visible") : tr("非表示", "Hidden")}
+                      </button>
+                    ))}
                   </div>
                 </section>
 
