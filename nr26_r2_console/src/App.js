@@ -4104,6 +4104,7 @@ function App() {
       name: "r2/task_state_sequence_names",
       messageType: "std_msgs/msg/String",
     });
+    publishPlannerStateSequence();
     publishPlannerStateSequenceNames();
 
     taskStatePoseRef.current = new ROSLIB.Topic({
@@ -4380,6 +4381,14 @@ function App() {
   useEffect(() => {
     setPlannerConfigIsDirty(true);
   }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerStateWaitConfig, plannerCustomStates, plannerStateNameOverrides]);
+
+  // Auto-publish sequence, names, and wait times whenever planner config changes while connected
+  useEffect(() => {
+    if (!taskStateSequenceRef.current) return;
+    publishPlannerStateSequence();
+    publishPlannerStateSequenceNames();
+    publishPlannerStateWaitAll();
+  }, [plannerStateSequence, plannerStateWaitConfig, plannerCustomStates, plannerStateNameOverrides]);
 
   if (frontendForceStopped) {
     return (
