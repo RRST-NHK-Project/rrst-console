@@ -184,6 +184,17 @@ const createPlannerStateOdomResetConfig = (stateCodes = BUILTIN_PLANNER_STATE_CO
     ])
   );
 
+const createPlannerStateWaitConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) =>
+  Object.fromEntries(
+    stateCodes.map((stateCode) => [
+      stateCode,
+      {
+        enabled: false,
+        waitSec: "3.0",
+      },
+    ])
+  );
+
 const MFF_LAYOUT_RED = [
   [13, 14, 15],   // 1E, 2E, 3E (entrance side)
   [1, 2, 3],
@@ -304,6 +315,7 @@ function App() {
   const taskStatePoseRef = useRef(null);
   const taskStateModeRef = useRef(null);
   const taskStateOdomResetRef = useRef(null);
+  const taskStateWaitRef = useRef(null);
   const taskAutoSendEnabledRef = useRef(null);
   const taskMffPathRef = useRef(null);
   const taskMffPathAdvanceRef = useRef(null);
@@ -331,6 +343,8 @@ function App() {
   const defaultRosHost = window.location.hostname || "localhost";
   const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
   const commandValueRef = useRef(0);
+  const operationArmedRef = useRef(false);
+  const controllerEnabledRef = useRef(false);
   const buttonsRef = useRef(Array(14).fill(0));
   const axesRef = useRef(Array(8).fill(0));
 
@@ -368,8 +382,8 @@ function App() {
     "shutdown",
     "settings",
   ];
-  const [joyTopicName, setJoyTopicName] = useState("/joy_9");
-  const [joyTopicInput, setJoyTopicInput] = useState("/joy_9");
+  const [joyTopicName, setJoyTopicName] = useState("joy");
+  const [joyTopicInput, setJoyTopicInput] = useState("joy");
   const [virtualOdomTopicInput, setVirtualOdomTopicInput] = useState("odom_xy_yaw");
   const [virtualOdomTopicName, setVirtualOdomTopicName] = useState("odom_xy_yaw");
   const [serialTargetIdInput, setSerialTargetIdInput] = useState("1");
@@ -404,6 +418,7 @@ function App() {
   const [plannerStatePoseConfig, setPlannerStatePoseConfig] = useState(() => createPlannerStatePoseConfig());
   const [plannerStateModeConfig, setPlannerStateModeConfig] = useState(() => createPlannerStateModeConfig());
   const [plannerStateOdomResetConfig, setPlannerStateOdomResetConfig] = useState(() => createPlannerStateOdomResetConfig());
+  const [plannerStateWaitConfig, setPlannerStateWaitConfig] = useState(() => createPlannerStateWaitConfig());
   const [plannerMffPathInput, setPlannerMffPathInput] = useState("1,2,3");
   const [plannerMffPathClickInputEnabled, setPlannerMffPathClickInputEnabled] = useState(false);
   const [plannerMffPathDraftCells, setPlannerMffPathDraftCells] = useState(() => parseMffPathInput("1,2,3"));
@@ -633,7 +648,7 @@ function App() {
   };
 
   const applyJoyTopicName = () => {
-    const nextTopic = joyTopicInput.trim() || "/joy_9";
+    const nextTopic = joyTopicInput.trim() || "joy";
     setJoyTopicName(nextTopic);
     console.log("Joy topic name updated to:", nextTopic);
   };
@@ -983,6 +998,24 @@ function App() {
     });
   };
 
+  const publishPlannerStateWait = (stateCode) => {
+    if (!taskStateWaitRef.current) return;
+    const config = plannerStateWaitConfig[stateCode];
+    if (!config) return;
+
+    const waitSec = Number.parseFloat(config.waitSec);
+    const waitMs = Number.isFinite(waitSec) ? Math.max(0, Math.round(waitSec * 1000)) : 0;
+    taskStateWaitRef.current.publish({
+      data: [Number(stateCode), waitMs, config.enabled ? 1 : 0],
+    });
+  };
+
+  const publishPlannerStateWaitAll = () => {
+    plannerStateSequence.forEach((stateCode) => {
+      publishPlannerStateWait(stateCode);
+    });
+  };
+
   const publishPlannerMffPath = () => {
     if (!taskMffPathRef.current) return;
     const cells = parseMffPathInput(plannerMffPathInput);
@@ -1178,6 +1211,10 @@ function App() {
       ...prev,
       [code]: { enabled: false },
     }));
+    setPlannerStateWaitConfig((prev) => ({
+      ...prev,
+      [code]: { enabled: false, waitSec: "3.0" },
+    }));
     setPlannerNewStateJaLabelInput("");
     setPlannerNewStatePublishNameInput("");
     setPlannerStatusText(
@@ -1202,6 +1239,11 @@ function App() {
       return next;
     });
     setPlannerStateOdomResetConfig((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
+    setPlannerStateWaitConfig((prev) => {
       const next = { ...prev };
       delete next[code];
       return next;
@@ -1302,9 +1344,11 @@ function App() {
     const defaultPoseConfig = createPlannerStatePoseConfig(validCodes);
     const defaultModeConfig = createPlannerStateModeConfig(validCodes);
     const defaultOdomResetConfig = createPlannerStateOdomResetConfig(validCodes);
+    const defaultWaitConfig = createPlannerStateWaitConfig(validCodes);
     const importedPose = parsed?.statePoseConfig && typeof parsed.statePoseConfig === "object" ? parsed.statePoseConfig : {};
     const importedMode = parsed?.stateModeConfig && typeof parsed.stateModeConfig === "object" ? parsed.stateModeConfig : {};
     const importedOdomReset = parsed?.stateOdomResetConfig && typeof parsed.stateOdomResetConfig === "object" ? parsed.stateOdomResetConfig : {};
+    const importedWait = parsed?.stateWaitConfig && typeof parsed.stateWaitConfig === "object" ? parsed.stateWaitConfig : {};
 
     const nextPoseConfig = Object.fromEntries(validCodes.map((code) => {
       const fallback = defaultPoseConfig[code];
@@ -1337,12 +1381,23 @@ function App() {
       }];
     }));
 
+    const nextWaitConfig = Object.fromEntries(validCodes.map((code) => {
+      const fallback = defaultWaitConfig[code];
+      const raw = importedWait[String(code)] ?? importedWait[code] ?? {};
+      const waitSecRaw = Number(raw?.waitSec);
+      return [code, {
+        enabled: Boolean(raw?.enabled),
+        waitSec: Number.isFinite(waitSecRaw) ? String(Math.max(0, waitSecRaw)) : fallback.waitSec,
+      }];
+    }));
+
     setPlannerCustomStates(normalizedCustomStates);
     setPlannerStateNameOverrides(normalizedNameOverrides);
     setPlannerStateSequence(normalizedSequence);
     setPlannerStatePoseConfig(nextPoseConfig);
     setPlannerStateModeConfig(nextModeConfig);
     setPlannerStateOdomResetConfig(nextOdomResetConfig);
+    setPlannerStateWaitConfig(nextWaitConfig);
     setPlannerConfigIsDirty(false);
     setPlannerStatusText(
       source === "startup"
@@ -1404,6 +1459,18 @@ function App() {
           };
           return [code, {
             enabled: Boolean(config.enabled),
+          }];
+        })
+      ),
+      stateWaitConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStateWaitConfig[code] || createPlannerStateWaitConfig()[code] || {
+            enabled: false,
+            waitSec: "3.0",
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+            waitSec: String(config.waitSec ?? "3.0"),
           }];
         })
       ),
@@ -1484,6 +1551,18 @@ function App() {
           };
           return [code, {
             enabled: Boolean(config.enabled),
+          }];
+        })
+      ),
+      stateWaitConfig: Object.fromEntries(
+        allStateCodes.map((code) => {
+          const config = plannerStateWaitConfig[code] || createPlannerStateWaitConfig()[code] || {
+            enabled: false,
+            waitSec: "3.0",
+          };
+          return [code, {
+            enabled: Boolean(config.enabled),
+            waitSec: String(config.waitSec ?? "3.0"),
           }];
         })
       ),
@@ -1634,6 +1713,16 @@ function App() {
       ...prev,
       [stateCode]: {
         enabled: Boolean(enabled),
+      },
+    }));
+  };
+
+  const updatePlannerStateWait = (stateCode, key, value) => {
+    setPlannerStateWaitConfig((prev) => ({
+      ...prev,
+      [stateCode]: {
+        ...prev[stateCode],
+        [key]: value,
       },
     }));
   };
@@ -3549,6 +3638,14 @@ function App() {
   }, [virtualOdomEnabled]);
 
   useEffect(() => {
+    operationArmedRef.current = operationArmed;
+  }, [operationArmed]);
+
+  useEffect(() => {
+    controllerEnabledRef.current = controllerEnabled;
+  }, [controllerEnabled]);
+
+  useEffect(() => {
     arucoTargetIdValueRef.current = Math.trunc(parseFloatSafe(arucoTargetIdInput, -1));
   }, [arucoTargetIdInput]);
 
@@ -3590,6 +3687,7 @@ function App() {
     if (joyRef.current) {
       try {
         joyRef.current.unsubscribe?.();
+        joyRef.current.unadvertise?.();
         console.log("Old joy topic unsubscribed");
       } catch (error) {
         console.warn("Error unsubscribing old joy topic:", error);
@@ -3602,12 +3700,15 @@ function App() {
       name: "/command",
       messageType: "std_msgs/msg/Int32MultiArray",
     });
+    commandRef.current.advertise?.();
+    console.log("Command topic advertised: /command");
 
     joyRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: joyTopicName,
       messageType: "sensor_msgs/msg/Joy",
     });
+    joyRef.current.advertise?.();
     console.log("Joy topic created:", joyTopicName);
 
     virtualOdomPubRef.current = new ROSLIB.Topic({
@@ -3931,6 +4032,13 @@ function App() {
       messageType: "std_msgs/msg/Int32MultiArray",
     });
 
+    taskStateWaitRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/task_state_wait_ms",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+    publishPlannerStateWaitAll();
+
     taskAutoSendEnabledRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r2/task_auto_send_enabled",
@@ -3997,7 +4105,7 @@ function App() {
 
     // 10Hzで送信
     const interval = setInterval(() => {
-      if (!controllerEnabled || !operationArmed) return;
+      if (!controllerEnabledRef.current || !operationArmedRef.current) return;
 
       if (commandRef.current) {
         commandRef.current.publish({
@@ -4019,8 +4127,16 @@ function App() {
       if (joyRef.current) {
         try {
           joyRef.current.unsubscribe?.();
+          joyRef.current.unadvertise?.();
         } catch (error) {
           console.warn("Error unsubscribing joy topic:", error);
+        }
+      }
+      if (commandRef.current) {
+        try {
+          commandRef.current.unadvertise?.();
+        } catch (error) {
+          console.warn("Error unadvertising command topic:", error);
         }
       }
       virtualOdomPubRef.current = null;
@@ -4171,7 +4287,7 @@ function App() {
   // Track if planner configuration is dirty
   useEffect(() => {
     setPlannerConfigIsDirty(true);
-  }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerCustomStates, plannerStateNameOverrides]);
+  }, [plannerStateSequence, plannerStatePoseConfig, plannerStateModeConfig, plannerStateOdomResetConfig, plannerStateWaitConfig, plannerCustomStates, plannerStateNameOverrides]);
 
   // Register beforeunload warning for unsaved changes
   useEffect(() => {
@@ -4435,7 +4551,7 @@ function App() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") applyJoyTopicName();
                   }}
-                  placeholder={tr("Joy Topic Name (例: /joy_9)", "Joy Topic Name (e.g. /joy_9)")}
+                  placeholder={tr("Joy Topic Name (例: joy)", "Joy Topic Name (e.g. joy)")}
                 />
                 <button className="connection-button btn-connect" onClick={applyJoyTopicName}>
                   {tr("更新", "Apply")}
@@ -5681,6 +5797,9 @@ function App() {
                       <button className="connection-button btn-connect" onClick={() => publishPlannerStateSequenceNames()}>
                         {tr("状態名を更新", "Update Names")}
                       </button>
+                      <button className="connection-button btn-connect" onClick={() => publishPlannerStateWaitAll()}>
+                        {tr("待機時間を送信", "Send Wait Times")}
+                      </button>
                       <button className="serial-clear-button" onClick={resetPlannerStateSequence}>
                         {tr("順序を初期化", "Reset Sequence")}
                       </button>
@@ -5707,8 +5826,8 @@ function App() {
                   </div>
                   <p className="connection-hint planner-state-config-hint">
                     {tr(
-                      "順序、状態ごとの目標座標、状態ごとのドライブモード、オドメトリリセット有無をここでまとめて設定します。未指定の座標やモードは送信しません。",
-                      "Configure state order, per-state target pose, per-state drive mode, and per-state odometry reset here. Unset pose or mode values will not be sent."
+                      "順序、状態ごとの目標座標、ドライブモード、オドメトリリセット、待機時間をここでまとめて設定します。",
+                      "Configure state order and per-state pose, drive mode, odometry reset, and wait time here."
                     )}
                   </p>
 
@@ -5823,6 +5942,7 @@ function App() {
                       const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" };
                       const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 3 };
                       const odomResetConfig = plannerStateOdomResetConfig[stateCode] || { enabled: false };
+                      const waitConfig = plannerStateWaitConfig[stateCode] || { enabled: false, waitSec: "3.0" };
                       const stateLabel = getPlannerStateLabel(stateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
                       const stateNameConfig = getPlannerStateNameConfig(stateCode);
                       const isDragged = draggedPlannerStateCode === stateCode;
@@ -5984,6 +6104,39 @@ function App() {
                               </p>
                               <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStateOdomReset(stateCode)}>
                                 {tr("リセット設定を送信", "Send Reset Setting")}
+                              </button>
+                            </section>
+
+                            <section className="planner-state-config-subcard">
+                              <div className="planner-state-config-subheader">
+                                <h5>{tr("自動遷移待機", "Auto Transition Wait")}</h5>
+                                <button
+                                  className={`toggle-button ${waitConfig.enabled ? "toggle-on" : "toggle-off"}`}
+                                  onClick={() => updatePlannerStateWait(stateCode, "enabled", !waitConfig.enabled)}
+                                >
+                                  {waitConfig.enabled ? tr("指定中", "Enabled") : tr("未指定", "Default")}
+                                </button>
+                              </div>
+                              <label className="serial-packet-label">
+                                {tr("待機時間 [sec]", "Wait [sec]")}
+                                <input
+                                  className="connection-input"
+                                  type="number"
+                                  min="0"
+                                  max="600"
+                                  step="0.1"
+                                  value={waitConfig.waitSec}
+                                  onChange={(e) => updatePlannerStateWait(stateCode, "waitSec", e.target.value)}
+                                />
+                              </label>
+                              <p className="connection-hint">
+                                {tr(
+                                  "この状態から次の状態へ進むまでの待機時間です（自動遷移時のみ）。",
+                                  "Wait before advancing from this state to the next one (auto transition only)."
+                                )}
+                              </p>
+                              <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStateWait(stateCode)}>
+                                {tr("待機時間を送信", "Send Wait")}
                               </button>
                             </section>
                           </div>
@@ -6971,6 +7124,12 @@ function App() {
                         className="connection-input"
                         value={joyTopicInput}
                         onChange={(e) => setJoyTopicInput(e.target.value)}
+                        onBlur={applyJoyTopicName}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            applyJoyTopicName();
+                          }
+                        }}
                       />
                     </label>
                   </div>
