@@ -442,6 +442,26 @@
   width: 100%;
 }
 
+.serial-servo-inputs {
+  display: grid;
+  gap: 6px;
+}
+
+.serial-servo-range {
+  width: 100%;
+}
+
+.serial-tr-inputs {
+  display: grid;
+  gap: 6px;
+}
+
+.serial-binary-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
 .serial-motor-range-labels {
   display: flex;
   justify-content: space-between;
@@ -3449,7 +3469,34 @@
 }
 
 .actuator-motor-bar {
+  position: relative;
+  display: block;
   background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, rgba(0, 0, 0, 0.04) 50%, rgba(59, 130, 246, 0.1) 100%);
+}
+
+.actuator-motor-center-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(17, 24, 39, 0.45);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.actuator-motor-fill-negative {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 50%;
+}
+
+.actuator-motor-fill-positive {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
 }
 
 .actuator-value-fill {

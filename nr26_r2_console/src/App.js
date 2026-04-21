@@ -2805,10 +2805,36 @@ function App() {
     });
   };
 
+  const updateServoSerialValue = (index, rawValue) => {
+    const parsed = Number.parseInt(rawValue, 10);
+    const safeValue = Number.isFinite(parsed)
+      ? Math.max(0, Math.min(270, parsed))
+      : 0;
+
+    setSerialValues((prev) => {
+      const next = [...prev];
+      next[index] = safeValue;
+      return next;
+    });
+  };
+
+  const updateTrSerialValue = (index, rawValue) => {
+    const parsed = Number.parseInt(rawValue, 10);
+    const safeValue = Number.isFinite(parsed) && parsed > 0 ? 1 : 0;
+
+    setSerialValues((prev) => {
+      const next = [...prev];
+      next[index] = safeValue;
+      return next;
+    });
+  };
+
   const renderSerialInputItem = (index) => {
     const label = PACKET_INDEX_LABELS[index] || `CH${index}`;
     const value = serialValues[index] ?? 0;
     const isMotor = label.startsWith("MD");
+    const isServo = label.startsWith("SERVO");
+    const isTr = label.startsWith("TR");
     return (
       <label className="serial-item" key={`${label}-${index}`}>
         <span className="serial-item-name">[{index}] {label}</span>
@@ -2836,6 +2862,58 @@ function App() {
               max="255"
               value={Math.max(-255, Math.min(255, value))}
               onChange={(e) => updateMotorSerialValue(index, e.target.value)}
+            />
+          </div>
+        ) : isServo ? (
+          <div className="serial-servo-inputs">
+            <input
+              className="serial-servo-range"
+              type="range"
+              min="0"
+              max="270"
+              step="1"
+              value={Math.max(0, Math.min(270, value))}
+              onChange={(e) => updateServoSerialValue(index, e.target.value)}
+            />
+            <div className="serial-motor-range-labels">
+              <span>0</span>
+              <span>135</span>
+              <span>270</span>
+            </div>
+            <input
+              className="connection-input"
+              type="number"
+              min="0"
+              max="270"
+              value={Math.max(0, Math.min(270, value))}
+              onChange={(e) => updateServoSerialValue(index, e.target.value)}
+            />
+          </div>
+        ) : isTr ? (
+          <div className="serial-tr-inputs">
+            <div className="serial-binary-buttons">
+              <button
+                type="button"
+                className={`connection-button ${value === 0 ? "btn-connect" : "btn-neutral"}`}
+                onClick={() => updateTrSerialValue(index, 0)}
+              >
+                OFF
+              </button>
+              <button
+                type="button"
+                className={`connection-button ${value === 1 ? "btn-send" : "btn-neutral"}`}
+                onClick={() => updateTrSerialValue(index, 1)}
+              >
+                ON
+              </button>
+            </div>
+            <input
+              className="connection-input"
+              type="number"
+              min="0"
+              max="1"
+              value={value === 0 ? 0 : 1}
+              onChange={(e) => updateTrSerialValue(index, e.target.value)}
             />
           </div>
         ) : (
@@ -6714,26 +6792,36 @@ function App() {
 
                       <section className="actuator-monitor-section">
                         <h4 className="actuator-monitor-subtitle">{tr("モータ出力", "Motors")} (MD1-8): -255 ~ 255</h4>
-                        {Array.from({ length: 8 }, (_, i) => i + 1).map((idx) => (
-                          <div key={`motor-${deviceId}-${idx}`} className="actuator-monitor-item">
-                            <label className="actuator-item-label">MD{idx}</label>
-                            <div className="actuator-value-bar actuator-motor-bar">
-                              <div
-                                className="actuator-value-fill-negative"
-                                style={{
-                                  width: `${Math.max(0, -(values[idx] ?? 0) / 255 * 50)}%`,
-                                }}
-                              ></div>
-                              <div
-                                className="actuator-value-fill-positive"
-                                style={{
-                                  width: `${Math.max(0, (values[idx] ?? 0) / 255 * 50)}%`,
-                                }}
-                              ></div>
+                        {Array.from({ length: 8 }, (_, i) => i + 1).map((idx) => {
+                          const rawMotorValue = Number(values[idx] ?? 0);
+                          const motorValue = Number.isFinite(rawMotorValue)
+                            ? Math.max(-255, Math.min(255, rawMotorValue))
+                            : 0;
+                          const negativeWidth = Math.max(0, (-motorValue / 255) * 50);
+                          const positiveWidth = Math.max(0, (motorValue / 255) * 50);
+
+                          return (
+                            <div key={`motor-${deviceId}-${idx}`} className="actuator-monitor-item">
+                              <label className="actuator-item-label">MD{idx}</label>
+                              <div className="actuator-value-bar actuator-motor-bar">
+                                <div className="actuator-motor-center-line"></div>
+                                <div
+                                  className="actuator-value-fill-negative actuator-motor-fill-negative"
+                                  style={{
+                                    width: `${negativeWidth}%`,
+                                  }}
+                                ></div>
+                                <div
+                                  className="actuator-value-fill-positive actuator-motor-fill-positive"
+                                  style={{
+                                    width: `${positiveWidth}%`,
+                                  }}
+                                ></div>
+                              </div>
+                              <span className="actuator-value-text">{motorValue}</span>
                             </div>
-                            <span className="actuator-value-text">{values[idx] ?? 0}</span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </section>
 
                       <section className="actuator-monitor-section">
