@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "multiTabMode": false,
+  "visiblePages": {
+    "controller": true,
+    "pose": true,
+    "planner": true,
+    "wall-angle": true,
+    "waypoint": false,
+    "teaching": false,
+    "simulator": false,
+    "actuator": true,
+    "actuator-monitor": true,
+    "topic": true,
+    "camera": true,
+    "cube-detection": true,
+    "serial-bridge": false,
+    "shutdown": false,
+    "settings": true
+  }
+}

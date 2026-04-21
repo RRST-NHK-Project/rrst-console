@@ -6189,7 +6189,7 @@ function App() {
                                   className={`toggle-button ${waitConfig.enabled ? "toggle-on" : "toggle-off"}`}
                                   onClick={() => updatePlannerStateWait(stateCode, "enabled", !waitConfig.enabled)}
                                 >
-                                  {waitConfig.enabled ? tr("指定中", "Enabled") : tr("未指定", "Default")}
+                                  {waitConfig.enabled ? tr("指定中", "Enabled") : tr("未指定(即時)", "Unset (Immediate)")}
                                 </button>
                               </div>
                               <label className="serial-packet-label">
@@ -6206,8 +6206,8 @@ function App() {
                               </label>
                               <p className="connection-hint">
                                 {tr(
-                                  "この状態から次の状態へ進むまでの待機時間です（自動遷移時のみ）。",
-                                  "Wait before advancing from this state to the next one (auto transition only)."
+                                  "この状態から次の状態へ進むまでの待機時間です（自動遷移時のみ）。未指定時は即時遷移します。",
+                                  "Wait before advancing from this state to the next one (auto transition only). If unset, transition is immediate."
                                 )}
                               </p>
                               <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStateWait(stateCode)}>
