@@ -77,6 +77,7 @@ const DRIVE_MODE_LABELS = {
   2: { ja: "ArUco", en: "ArUco" },
   3: { ja: "平面モード", en: "Plane" },
   4: { ja: "MFFモード", en: "MFF" },
+  5: { ja: "アリーナモード", en: "Arena" },
 };
 
 const PLANNER_COLOR_LABELS = {
@@ -1474,7 +1475,7 @@ function App() {
       const modeCode = Number(raw?.modeCode);
       return [code, {
         enabled: Boolean(raw?.enabled),
-        modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 4 ? modeCode : fallback.modeCode,
+        modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 5 ? modeCode : fallback.modeCode,
       }];
     }));
 
@@ -3943,7 +3944,7 @@ function App() {
     });
     driveModeRef.current.subscribe((msg) => {
       const nextMode = (msg?.data || "").toUpperCase();
-      if (nextMode === "AUTO" || nextMode === "MANUAL" || nextMode === "ARUCO" || nextMode === "PLANE" || nextMode === "MFF") {
+      if (nextMode === "AUTO" || nextMode === "MANUAL" || nextMode === "ARUCO" || nextMode === "PLANE" || nextMode === "MFF" || nextMode === "ARENA") {
         setDriveMode(nextMode);
       }
     });
