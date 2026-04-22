@@ -992,7 +992,10 @@ function App() {
 
   const publishPlannerTransitionMode = (modeCode) => {
     if (!taskTransitionModeRef.current) return;
-    taskTransitionModeRef.current.publish({ data: Number(modeCode) });
+    const nextMode = Number(modeCode);
+    taskTransitionModeRef.current.publish({ data: nextMode });
+    setPlannerTransitionModeCode(nextMode);
+    console.info("[Planner] publish transition mode", nextMode);
   };
 
   const publishPlannerAutoSendEnabled = (enabled) => {
@@ -4183,11 +4186,12 @@ function App() {
 
     taskTransitionModeRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
-      name: "r2/task_transition_mode",
+      name: "/r2/task_transition_mode",
       messageType: "std_msgs/msg/Int32",
       queueSize: 1,
       latching: true,
     });
+    taskTransitionModeRef.current.advertise();
 
     taskStateSequenceRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
