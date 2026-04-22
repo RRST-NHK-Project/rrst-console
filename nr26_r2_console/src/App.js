@@ -602,7 +602,6 @@ function App() {
 
   const plannerAllStateCodes = Array.from(
     new Set([
-      ...BUILTIN_PLANNER_STATE_CODES,
       ...plannerCustomStates.map((state) => state.code),
       ...plannerStateSequence,
     ])
@@ -1297,6 +1296,11 @@ function App() {
   const removePlannerCustomState = (code) => {
     setPlannerCustomStates((prev) => prev.filter((state) => state.code !== code));
     setPlannerStateSequence((prev) => prev.filter((stateCode) => stateCode !== code));
+    setPlannerStateNameOverrides((prev) => {
+      const next = { ...prev };
+      delete next[code];
+      return next;
+    });
     setPlannerStatePoseConfig((prev) => {
       const next = { ...prev };
       delete next[code];
@@ -1387,28 +1391,40 @@ function App() {
         }];
       }).filter(([, value]) => Boolean(value))
     );
-    const validCodes = Array.from(new Set([
+    const baseValidCodes = Array.from(new Set([
       ...BUILTIN_PLANNER_STATE_CODES,
       ...normalizedCustomStates.map((state) => state.code),
     ]));
-    const validStateSet = new Set(validCodes);
+    const baseValidStateSet = new Set(baseValidCodes);
 
-    const rawSequence = Array.isArray(parsed?.stateSequence) ? parsed.stateSequence : [];
+    const hasStateSequence = Array.isArray(parsed?.stateSequence);
+    const rawSequence = hasStateSequence ? parsed.stateSequence : [];
     const normalizedSequence = [];
     rawSequence.forEach((value) => {
       const code = Number(value);
-      if (!Number.isFinite(code) || !validStateSet.has(code)) {
+      if (!Number.isFinite(code) || !baseValidStateSet.has(code)) {
         return;
       }
       if (!normalizedSequence.includes(code)) {
         normalizedSequence.push(code);
       }
     });
-    validCodes.forEach((code) => {
-      if (!normalizedSequence.includes(code)) {
-        normalizedSequence.push(code);
-      }
-    });
+
+    const effectiveSequence = hasStateSequence
+      ? normalizedSequence
+      : [...baseValidCodes];
+
+    const validCodes = Array.from(new Set([
+      ...normalizedCustomStates.map((state) => state.code),
+      ...effectiveSequence,
+    ]));
+    const validStateSet = new Set(validCodes);
+
+    const filteredNameOverrides = Object.fromEntries(
+      Object.entries(normalizedNameOverrides)
+        .map(([rawCode, value]) => [Number(rawCode), value])
+        .filter(([code, value]) => Number.isFinite(code) && validStateSet.has(code) && Boolean(value))
+    );
 
     const defaultPoseConfig = createPlannerStatePoseConfig(validCodes);
     const defaultModeConfig = createPlannerStateModeConfig(validCodes);
@@ -1461,8 +1477,8 @@ function App() {
     }));
 
     setPlannerCustomStates(normalizedCustomStates);
-    setPlannerStateNameOverrides(normalizedNameOverrides);
-    setPlannerStateSequence(normalizedSequence);
+    setPlannerStateNameOverrides(filteredNameOverrides);
+    setPlannerStateSequence(effectiveSequence);
     setPlannerStatePoseConfig(nextPoseConfig);
     setPlannerStateModeConfig(nextModeConfig);
     setPlannerStateOdomResetConfig(nextOdomResetConfig);
@@ -1470,8 +1486,8 @@ function App() {
     setPlannerConfigIsDirty(false);
     setPlannerStatusText(
       source === "startup"
-        ? tr(`最新設定を自動読込しました (${normalizedSequence.length} 状態)`, `Loaded latest config automatically (${normalizedSequence.length} states)`)
-        : tr(`状態設定をインポートしました (${normalizedSequence.length} 状態)`, `State configuration imported (${normalizedSequence.length} states)`)
+        ? tr(`最新設定を自動読込しました (${effectiveSequence.length} 状態)`, `Loaded latest config automatically (${effectiveSequence.length} states)`)
+        : tr(`状態設定をインポートしました (${effectiveSequence.length} 状態)`, `State configuration imported (${effectiveSequence.length} states)`)
     );
   };
 
