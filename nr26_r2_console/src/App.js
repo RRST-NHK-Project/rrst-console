@@ -320,6 +320,7 @@ function App() {
   const taskAutoSendEnabledRef = useRef(null);
   const taskMffPathRef = useRef(null);
   const taskMffPathAdvanceRef = useRef(null);
+  const mffStepCompleteSubRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
@@ -973,6 +974,21 @@ function App() {
 
     taskStateCommandRef.current.publish({ data: Number(stateCode) });
   };
+
+  // MFF出口マス（1X=16, 2X=17, 3X=18）到達時に自動でMFF離脱（state=2）へ遷移
+  const MFF_EXIT_CELLS = [16, 17, 18];
+  const MFF_STATE_ENTER = 1;
+  const MFF_STATE_LEAVE = 2;
+  useEffect(() => {
+    if (
+      plannerStateCode === MFF_STATE_ENTER &&
+      MFF_EXIT_CELLS.includes(plannerCellCode)
+    ) {
+      console.log("[MFF] Exit cell reached (", plannerCellCode, "), transitioning to Leave MFF.");
+      publishPlannerState(MFF_STATE_LEAVE);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannerCellCode, plannerStateCode]);
 
   const publishPlannerColor = (colorCode) => {
     if (!taskColorCommandRef.current) return;
@@ -4252,6 +4268,19 @@ function App() {
       ros: rosRef.current,
       name: "r2/task_mff_path_advance",
       messageType: "std_msgs/msg/Bool",
+    });
+
+    // 段差完了時にMFFCellを自動進行
+    mffStepCompleteSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2_mff_step_complete",
+      messageType: "std_msgs/msg/Int32",
+    });
+    mffStepCompleteSubRef.current.subscribe((msg) => {
+      if (msg?.data !== 0 && taskMffPathAdvanceRef.current) {
+        taskMffPathAdvanceRef.current.publish({ data: true });
+        console.log("[MFF] step_complete received (", msg.data, "), auto-advancing MFF cell.");
+      }
     });
 
     taskStatusSubRef.current = new ROSLIB.Topic({
