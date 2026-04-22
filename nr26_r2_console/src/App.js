@@ -4185,6 +4185,8 @@ function App() {
       ros: rosRef.current,
       name: "r2/task_transition_mode",
       messageType: "std_msgs/msg/Int32",
+      queueSize: 1,
+      latching: true,
     });
 
     taskStateSequenceRef.current = new ROSLIB.Topic({
