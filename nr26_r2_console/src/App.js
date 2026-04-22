@@ -4197,6 +4197,8 @@ function App() {
       ros: rosRef.current,
       name: "r2/task_state_sequence_names",
       messageType: "std_msgs/msg/String",
+      queueSize: 1,
+      latching: true,
     });
     publishPlannerStateSequence();
     publishPlannerStateSequenceNames();
