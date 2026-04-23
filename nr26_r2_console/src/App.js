@@ -322,6 +322,7 @@ function App() {
   const taskMffPathRef = useRef(null);
   const taskMffPathAdvanceRef = useRef(null);
   const mffStepCompleteSubRef = useRef(null);
+  const mffStepCompletePubRef = useRef(null);
   const arenaWalkCompletePubRef = useRef(null);
   const arenaWalkCompleteSubRef = useRef(null);
   const taskStatusSubRef = useRef(null);
@@ -432,6 +433,7 @@ function App() {
   const [plannerMffPathDraftCells, setPlannerMffPathDraftCells] = useState(() => parseMffPathInput("1,2,3"));
   const [plannerMffPathCells, setPlannerMffPathCells] = useState([]);
   const [plannerMffPathInfo, setPlannerMffPathInfo] = useState("未送信");
+  const [plannerMffVirtualInfo, setPlannerMffVirtualInfo] = useState("未送信");
   const [plannerArenaVirtualInfo, setPlannerArenaVirtualInfo] = useState("未送信");
   const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
   const [plannerExportsList, setPlannerExportsList] = useState([]);
@@ -1195,6 +1197,21 @@ function App() {
     }
 
     setPlannerMffPathInfo(tr("MFF次マス進行を送信（経路終端）", "Sent MFF advance trigger (end of path)"));
+  };
+
+  const publishMffCompleteVirtualCommand = () => {
+    if (!mffStepCompletePubRef.current) {
+      setPlannerMffVirtualInfo(tr("ROS未接続のため送信できません", "Cannot send because ROS is not connected"));
+      return;
+    }
+
+    mffStepCompletePubRef.current.publish({ data: 1 });
+    setPlannerMffVirtualInfo(
+      tr(
+        "MFF完了フラッグを送信しました（r2_mff_step_complete=1）",
+        "Sent MFF completion flag (r2_mff_step_complete=1)"
+      )
+    );
   };
 
   const publishArenaLeaveVirtualCommand = () => {
@@ -4295,6 +4312,13 @@ function App() {
       messageType: "std_msgs/msg/Bool",
     });
 
+    // MFF擬似完了フラッグ送信用
+    mffStepCompletePubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2_mff_step_complete",
+      messageType: "std_msgs/msg/Int32",
+    });
+
     // アリーナ離脱の仮想コマンド送信用（完了フラッグを疑似送信）
     arenaWalkCompletePubRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
@@ -5958,6 +5982,26 @@ function App() {
                       )}
                     </div>
                   </section>
+
+                  <section className="planner-status-card planner-manual-transition-card">
+                    <h3 className="serial-bridge-title">{tr("擬似完了フラグ", "Virtual Completion Flags")}</h3>
+                    <p className="connection-hint">
+                      {tr(
+                        "MFF/アリーナ中に自動遷移がブロックされているとき、完了フラグを疑似送信して次状態へ進めます。",
+                        "When auto transition is blocked during MFF/Arena, send virtual completion flags to move to the next state."
+                      )}
+                    </p>
+                    <div className="planner-cell-row planner-cell-row-inline planner-mff-path-row">
+                      <button className="connection-button btn-send" onClick={publishMffCompleteVirtualCommand}>
+                        {tr("MFF完了フラグ送信", "Send MFF Complete Flag")}
+                      </button>
+                      <button className="connection-button btn-send" onClick={publishArenaLeaveVirtualCommand}>
+                        {tr("アリーナ完了フラグ送信", "Send Arena Complete Flag")}
+                      </button>
+                    </div>
+                    <p className="connection-hint">{plannerMffVirtualInfo}</p>
+                    <p className="connection-hint">{plannerArenaVirtualInfo}</p>
+                  </section>
                 </div>
               </div>
 
@@ -6883,22 +6927,6 @@ function App() {
                               }}
                             ></div>
                           </div>
-
-                          <section className="planner-status-card planner-manual-transition-card">
-                            <h3 className="serial-bridge-title">{tr("アリーナ仮想コマンド", "Arena Virtual Command")}</h3>
-                            <p className="connection-hint">
-                              {tr(
-                                "アリーナ完了フラッグを疑似送信して、アリーナモードからの離脱をテストします。",
-                                "Simulate arena completion flag to test leaving arena mode."
-                              )}
-                            </p>
-                            <div className="planner-cell-row planner-cell-row-inline planner-mff-path-row">
-                              <button className="connection-button btn-send" onClick={publishArenaLeaveVirtualCommand}>
-                                {tr("アリーナ離脱（仮想）", "Leave Arena (Virtual)")}
-                              </button>
-                            </div>
-                            <p className="connection-hint">{plannerArenaVirtualInfo}</p>
-                          </section>
                           <span className="actuator-value-text">{values[0] ?? 0}</span>
                         </div>
                       </section>
