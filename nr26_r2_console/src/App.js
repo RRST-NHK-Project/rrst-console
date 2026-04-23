@@ -322,6 +322,7 @@ function App() {
   const taskMffPathRef = useRef(null);
   const taskMffPathAdvanceRef = useRef(null);
   const mffStepCompleteSubRef = useRef(null);
+  const arenaWalkCompletePubRef = useRef(null);
   const arenaWalkCompleteSubRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
@@ -431,6 +432,7 @@ function App() {
   const [plannerMffPathDraftCells, setPlannerMffPathDraftCells] = useState(() => parseMffPathInput("1,2,3"));
   const [plannerMffPathCells, setPlannerMffPathCells] = useState([]);
   const [plannerMffPathInfo, setPlannerMffPathInfo] = useState("未送信");
+  const [plannerArenaVirtualInfo, setPlannerArenaVirtualInfo] = useState("未送信");
   const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
   const [plannerExportsList, setPlannerExportsList] = useState([]);
   const [plannerSelectedExportPath, setPlannerSelectedExportPath] = useState("");
@@ -1193,6 +1195,21 @@ function App() {
     }
 
     setPlannerMffPathInfo(tr("MFF次マス進行を送信（経路終端）", "Sent MFF advance trigger (end of path)"));
+  };
+
+  const publishArenaLeaveVirtualCommand = () => {
+    if (!arenaWalkCompletePubRef.current) {
+      setPlannerArenaVirtualInfo(tr("ROS未接続のため送信できません", "Cannot send because ROS is not connected"));
+      return;
+    }
+
+    arenaWalkCompletePubRef.current.publish({ data: true });
+    setPlannerArenaVirtualInfo(
+      tr(
+        "アリーナ離脱仮想コマンドを送信しました（r2/arena_walk_complete=true）",
+        "Sent virtual arena-exit command (r2/arena_walk_complete=true)"
+      )
+    );
   };
 
   const reorderPlannerStateSequence = (fromStateCode, toStateCode) => {
@@ -4278,6 +4295,13 @@ function App() {
       messageType: "std_msgs/msg/Bool",
     });
 
+    // アリーナ離脱の仮想コマンド送信用（完了フラッグを疑似送信）
+    arenaWalkCompletePubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/arena_walk_complete",
+      messageType: "std_msgs/msg/Bool",
+    });
+
     // 段差完了時にMFFCellを自動進行
     mffStepCompleteSubRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
@@ -6859,6 +6883,22 @@ function App() {
                               }}
                             ></div>
                           </div>
+
+                          <section className="planner-status-card planner-manual-transition-card">
+                            <h3 className="serial-bridge-title">{tr("アリーナ仮想コマンド", "Arena Virtual Command")}</h3>
+                            <p className="connection-hint">
+                              {tr(
+                                "アリーナ完了フラッグを疑似送信して、アリーナモードからの離脱をテストします。",
+                                "Simulate arena completion flag to test leaving arena mode."
+                              )}
+                            </p>
+                            <div className="planner-cell-row planner-cell-row-inline planner-mff-path-row">
+                              <button className="connection-button btn-send" onClick={publishArenaLeaveVirtualCommand}>
+                                {tr("アリーナ離脱（仮想）", "Leave Arena (Virtual)")}
+                              </button>
+                            </div>
+                            <p className="connection-hint">{plannerArenaVirtualInfo}</p>
+                          </section>
                           <span className="actuator-value-text">{values[0] ?? 0}</span>
                         </div>
                       </section>
