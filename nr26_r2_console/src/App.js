@@ -159,6 +159,7 @@ const createPlannerStatePoseConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) 
         x: "0.0",
         y: "0.0",
         yaw: "0.0",
+        waitForAutoDriveComplete: false,
       },
     ])
   );
@@ -324,6 +325,7 @@ function App() {
   const mffStepCompleteSubRef = useRef(null);
   const mffStepCompletePubRef = useRef(null);
   const arenaWalkCompletePubRef = useRef(null);
+  const autodriveCompletePubRef = useRef(null);
   const arenaWalkCompleteSubRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
@@ -435,6 +437,7 @@ function App() {
   const [plannerMffPathInfo, setPlannerMffPathInfo] = useState("未送信");
   const [plannerMffVirtualInfo, setPlannerMffVirtualInfo] = useState("未送信");
   const [plannerArenaVirtualInfo, setPlannerArenaVirtualInfo] = useState("未送信");
+  const [plannerAutodriveVirtualInfo, setPlannerAutodriveVirtualInfo] = useState("未送信");
   const [plannerConfigIsDirty, setPlannerConfigIsDirty] = useState(false);
   const [plannerExportsList, setPlannerExportsList] = useState([]);
   const [plannerSelectedExportPath, setPlannerSelectedExportPath] = useState("");
@@ -1066,6 +1069,7 @@ function App() {
         Number.isFinite(yValue) ? yValue : 0,
         yawRad,
         config.enabled ? 1 : 0,
+        config.waitForAutoDriveComplete ? 1 : 0,
       ],
     });
   };
@@ -1225,6 +1229,21 @@ function App() {
       tr(
         "アリーナ離脱仮想コマンドを送信しました（r2/arena_walk_complete=true）",
         "Sent virtual arena-exit command (r2/arena_walk_complete=true)"
+      )
+    );
+  };
+
+  const publishAutodriveCompleteVirtualCommand = () => {
+    if (!autodriveCompletePubRef.current) {
+      setPlannerAutodriveVirtualInfo(tr("ROS未接続のため送信できません", "Cannot send because ROS is not connected"));
+      return;
+    }
+
+    autodriveCompletePubRef.current.publish({ data: true });
+    setPlannerAutodriveVirtualInfo(
+      tr(
+        "移動完了フラッグを送信しました（r2/autodrive_complete=true）",
+        "Sent move completion flag (r2/autodrive_complete=true)"
       )
     );
   };
@@ -1507,6 +1526,7 @@ function App() {
         x: Number.isFinite(x) ? String(x) : fallback.x,
         y: Number.isFinite(y) ? String(y) : fallback.y,
         yaw: Number.isFinite(yaw) ? String(parseFloat(yaw.toFixed(2))) : fallback.yaw,
+        waitForAutoDriveComplete: Boolean(raw?.waitForAutoDriveComplete),
       }];
     }));
 
@@ -1577,12 +1597,14 @@ function App() {
             x: "0.0",
             y: "0.0",
             yaw: "0.0",
+            waitForAutoDriveComplete: false,
           };
           return [code, {
             enabled: Boolean(config.enabled),
             x: String(config.x ?? "0.0"),
             y: String(config.y ?? "0.0"),
             yaw: String(config.yaw ?? "0.0"),
+            waitForAutoDriveComplete: Boolean(config.waitForAutoDriveComplete),
           }];
         })
       ),
@@ -1669,12 +1691,14 @@ function App() {
             x: "0.0",
             y: "0.0",
             yaw: "0.0",
+            waitForAutoDriveComplete: false,
           };
           return [code, {
             enabled: Boolean(config.enabled),
             x: String(config.x ?? "0.0"),
             y: String(config.y ?? "0.0"),
             yaw: String(config.yaw ?? "0.0"),
+            waitForAutoDriveComplete: Boolean(config.waitForAutoDriveComplete),
           }];
         })
       ),
@@ -4326,6 +4350,13 @@ function App() {
       messageType: "std_msgs/msg/Bool",
     });
 
+    // AutoDrive移動完了の仮想コマンド送信用（完了フラッグを疑似送信）
+    autodriveCompletePubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/autodrive_complete",
+      messageType: "std_msgs/msg/Bool",
+    });
+
     // 段差完了時にMFFCellを自動進行
     mffStepCompleteSubRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
@@ -4460,6 +4491,20 @@ function App() {
           console.warn("Error unsubscribing task status text topic:", error);
         }
       }
+      if (mffStepCompleteSubRef.current) {
+        try {
+          mffStepCompleteSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing mff step complete topic:", error);
+        }
+      }
+      if (arenaWalkCompleteSubRef.current) {
+        try {
+          arenaWalkCompleteSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing arena walk complete topic:", error);
+        }
+      }
       if (arucoPoseSubRef.current) {
         try {
           arucoPoseSubRef.current.unsubscribe?.();
@@ -4504,6 +4549,11 @@ function App() {
       stopCubeDebugStream();
       stopCameraStream();
       stopTopicEcho();
+      mffStepCompleteSubRef.current = null;
+      arenaWalkCompleteSubRef.current = null;
+      mffStepCompletePubRef.current = null;
+      arenaWalkCompletePubRef.current = null;
+      autodriveCompletePubRef.current = null;
       if (rosRef.current) rosRef.current.close();
     };
   }, [rosUrl, joyTopicName, virtualOdomTopicName, wallAngleTopicName, cubeDetectionMode]);
@@ -5987,8 +6037,8 @@ function App() {
                     <h3 className="serial-bridge-title">{tr("擬似完了フラグ", "Virtual Completion Flags")}</h3>
                     <p className="connection-hint">
                       {tr(
-                        "MFF/アリーナ中に自動遷移がブロックされているとき、完了フラグを疑似送信して次状態へ進めます。",
-                        "When auto transition is blocked during MFF/Arena, send virtual completion flags to move to the next state."
+                        "MFF/アリーナ/移動完了待機で自動遷移がブロックされているとき、完了フラグを疑似送信して次状態へ進めます。",
+                        "When auto transition is blocked by MFF/Arena/move-complete wait, send virtual completion flags to move to the next state."
                       )}
                     </p>
                     <div className="planner-virtual-flag-row">
@@ -5998,9 +6048,15 @@ function App() {
                       <button className="connection-button btn-send" onClick={publishArenaLeaveVirtualCommand}>
                         {tr("アリーナ完了フラグ送信", "Send Arena Complete Flag")}
                       </button>
+                      <button className="connection-button btn-send" onClick={publishAutodriveCompleteVirtualCommand}>
+                        {tr("移動完了フラグ送信", "Send Move Complete Flag")}
+                      </button>
                     </div>
-                    <p className="connection-hint">{plannerMffVirtualInfo}</p>
-                    <p className="connection-hint">{plannerArenaVirtualInfo}</p>
+                    <div className="planner-virtual-flag-status-grid">
+                      <p className="connection-hint">{plannerMffVirtualInfo}</p>
+                      <p className="connection-hint">{plannerArenaVirtualInfo}</p>
+                      <p className="connection-hint">{plannerAutodriveVirtualInfo}</p>
+                    </div>
                   </section>
                 </div>
               </div>
@@ -6242,7 +6298,7 @@ function App() {
 
                   <div className="planner-state-config-list">
                     {plannerStateSequence.map((stateCode, index) => {
-                      const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" };
+                      const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0", waitForAutoDriveComplete: false };
                       const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 3 };
                       const odomResetConfig = plannerStateOdomResetConfig[stateCode] || { enabled: false };
                       const waitConfig = plannerStateWaitConfig[stateCode] || { enabled: false, waitSec: "3.0" };
@@ -6343,6 +6399,22 @@ function App() {
                                   />
                                 </label>
                               </div>
+                              <div className="planner-state-rotate-only-option">
+                                <label className="serial-packet-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(poseConfig.waitForAutoDriveComplete)}
+                                    onChange={(e) => updatePlannerStatePose(stateCode, "waitForAutoDriveComplete", e.target.checked)}
+                                  />
+                                  {tr("移動完了フラグ待機", "Wait for Move Complete Flag")}
+                                </label>
+                              </div>
+                              <p className="connection-hint">
+                                {tr(
+                                  "ONにすると、この状態の自動遷移は r2/autodrive_complete=true を受信するまで進みません。",
+                                  "When enabled, auto transition for this state waits until r2/autodrive_complete=true is received."
+                                )}
+                              </p>
                               <div className="planner-state-rotate-only-option">
                                 <label className="serial-packet-label">
                                   <input
