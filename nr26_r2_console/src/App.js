@@ -1052,14 +1052,15 @@ function App() {
 
     const xValue = Number.parseFloat(config.x);
     const yValue = Number.parseFloat(config.y);
-    const yawValue = Number.parseFloat(config.yaw);
+    const yawDeg = Number.parseFloat(config.yaw);
+    const yawRad = Number.isFinite(yawDeg) ? yawDeg * Math.PI / 180 : 0;
 
     taskStatePoseRef.current.publish({
       data: [
         Number(stateCode),
         Number.isFinite(xValue) ? xValue : 0,
         Number.isFinite(yValue) ? yValue : 0,
-        Number.isFinite(yawValue) ? yawValue : 0,
+        yawRad,
         config.enabled ? 1 : 0,
       ],
     });
@@ -1456,17 +1457,22 @@ function App() {
     const importedOdomReset = parsed?.stateOdomResetConfig && typeof parsed.stateOdomResetConfig === "object" ? parsed.stateOdomResetConfig : {};
     const importedWait = parsed?.stateWaitConfig && typeof parsed.stateWaitConfig === "object" ? parsed.stateWaitConfig : {};
 
+    const importVersion = Number(parsed?.version) || 1;
     const nextPoseConfig = Object.fromEntries(validCodes.map((code) => {
       const fallback = defaultPoseConfig[code];
       const raw = importedPose[String(code)] ?? importedPose[code] ?? {};
       const x = Number(raw?.x);
       const y = Number(raw?.y);
-      const yaw = Number(raw?.yaw);
+      const yawRaw = Number(raw?.yaw);
+      // v1ファイルはyawがradianで保存されていたため、degreeに変換する
+      const yaw = Number.isFinite(yawRaw) && importVersion < 2
+        ? yawRaw * 180 / Math.PI
+        : yawRaw;
       return [code, {
         enabled: Boolean(raw?.enabled),
         x: Number.isFinite(x) ? String(x) : fallback.x,
         y: Number.isFinite(y) ? String(y) : fallback.y,
-        yaw: Number.isFinite(yaw) ? String(yaw) : fallback.yaw,
+        yaw: Number.isFinite(yaw) ? String(parseFloat(yaw.toFixed(2))) : fallback.yaw,
       }];
     }));
 
@@ -1516,7 +1522,7 @@ function App() {
     const allStateCodes = [...plannerAllStateCodes];
     const exportData = {
       format: "nr26-planner-state-config",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
@@ -1608,7 +1614,7 @@ function App() {
     const allStateCodes = [...plannerAllStateCodes];
     const exportData = {
       format: "nr26-planner-state-config",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
@@ -6259,11 +6265,11 @@ function App() {
                                   />
                                 </label>
                                 <label className="serial-packet-label">
-                                  Yaw [rad]
+                                  Yaw [°]
                                   <input
                                     className="connection-input"
                                     type="number"
-                                    step="0.01"
+                                    step="1"
                                     value={poseConfig.yaw}
                                     onChange={(e) => updatePlannerStatePose(stateCode, "yaw", e.target.value)}
                                   />
