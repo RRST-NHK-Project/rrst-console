@@ -1052,9 +1052,9 @@ function App() {
     taskStateSequenceNameRef.current.publish({ data: publishNames.join(",") });
   };
 
-  const publishPlannerStatePose = (stateCode) => {
+  const publishPlannerStatePose = (stateCode, overrideConfig = null) => {
     if (!taskStatePoseRef.current) return;
-    const config = plannerStatePoseConfig[stateCode];
+    const config = overrideConfig || plannerStatePoseConfig[stateCode];
     if (!config) return;
 
     const xValue = Number.parseFloat(config.x);
@@ -1074,6 +1074,12 @@ function App() {
     });
   };
 
+  const publishPlannerStatePoseAll = () => {
+    plannerStateSequence.forEach((stateCode) => {
+      publishPlannerStatePose(stateCode);
+    });
+  };
+
   const publishPlannerStateMode = (stateCode) => {
     if (!taskStateModeRef.current) return;
     const config = plannerStateModeConfig[stateCode];
@@ -1086,6 +1092,12 @@ function App() {
     });
   };
 
+  const publishPlannerStateModeAll = () => {
+    plannerStateSequence.forEach((stateCode) => {
+      publishPlannerStateMode(stateCode);
+    });
+  };
+
   const publishPlannerStateOdomReset = (stateCode) => {
     if (!taskStateOdomResetRef.current) return;
     const config = plannerStateOdomResetConfig[stateCode];
@@ -1093,6 +1105,12 @@ function App() {
 
     taskStateOdomResetRef.current.publish({
       data: [Number(stateCode), config.enabled ? 1 : 0],
+    });
+  };
+
+  const publishPlannerStateOdomResetAll = () => {
+    plannerStateSequence.forEach((stateCode) => {
+      publishPlannerStateOdomReset(stateCode);
     });
   };
 
@@ -1112,6 +1130,13 @@ function App() {
     plannerStateSequence.forEach((stateCode) => {
       publishPlannerStateWait(stateCode);
     });
+  };
+
+  const publishPlannerStateConfigAll = () => {
+    publishPlannerStatePoseAll();
+    publishPlannerStateModeAll();
+    publishPlannerStateOdomResetAll();
+    publishPlannerStateWaitAll();
   };
 
   const publishPlannerMffPath = () => {
@@ -4314,7 +4339,7 @@ function App() {
       name: "r2/task_state_wait_ms",
       messageType: "std_msgs/msg/Int32MultiArray",
     });
-    publishPlannerStateWaitAll();
+    publishPlannerStateConfigAll();
 
     taskAutoSendEnabledRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
@@ -6159,6 +6184,9 @@ function App() {
                       <button className="connection-button btn-connect" onClick={() => publishPlannerStateWaitAll()}>
                         {tr("待機時間を送信", "Send Wait Times")}
                       </button>
+                      <button className="connection-button btn-connect" onClick={() => publishPlannerStateConfigAll()}>
+                        {tr("状態設定を一括送信", "Send All State Config")}
+                      </button>
                       <button className="serial-clear-button" onClick={resetPlannerStateSequence}>
                         {tr("順序を初期化", "Reset Sequence")}
                       </button>
@@ -6404,7 +6432,15 @@ function App() {
                                   <input
                                     type="checkbox"
                                     checked={Boolean(poseConfig.waitForAutoDriveComplete)}
-                                    onChange={(e) => updatePlannerStatePose(stateCode, "waitForAutoDriveComplete", e.target.checked)}
+                                    onChange={(e) => {
+                                      const nextChecked = e.target.checked;
+                                      const nextPoseConfig = {
+                                        ...poseConfig,
+                                        waitForAutoDriveComplete: nextChecked,
+                                      };
+                                      updatePlannerStatePose(stateCode, "waitForAutoDriveComplete", nextChecked);
+                                      publishPlannerStatePose(stateCode, nextPoseConfig);
+                                    }}
                                   />
                                   {tr("移動完了フラグ待機", "Wait for Move Complete Flag")}
                                 </label>
