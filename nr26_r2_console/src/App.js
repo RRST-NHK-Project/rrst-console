@@ -5991,7 +5991,7 @@ function App() {
                         "When auto transition is blocked during MFF/Arena, send virtual completion flags to move to the next state."
                       )}
                     </p>
-                    <div className="planner-cell-row planner-cell-row-inline planner-mff-path-row">
+                    <div className="planner-virtual-flag-row">
                       <button className="connection-button btn-send" onClick={publishMffCompleteVirtualCommand}>
                         {tr("MFF完了フラグ送信", "Send MFF Complete Flag")}
                       </button>
