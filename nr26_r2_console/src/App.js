@@ -322,6 +322,7 @@ function App() {
   const taskMffPathRef = useRef(null);
   const taskMffPathAdvanceRef = useRef(null);
   const mffStepCompleteSubRef = useRef(null);
+  const arenaWalkCompleteSubRef = useRef(null);
   const taskStatusSubRef = useRef(null);
   const taskStatusTextSubRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
@@ -4281,6 +4282,18 @@ function App() {
       if (msg?.data !== 0 && taskMffPathAdvanceRef.current) {
         taskMffPathAdvanceRef.current.publish({ data: true });
         console.log("[MFF] step_complete received (", msg.data, "), auto-advancing MFF cell.");
+      }
+    });
+
+    // アリーナ走行完了通知
+    arenaWalkCompleteSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r2/arena_walk_complete",
+      messageType: "std_msgs/msg/Bool",
+    });
+    arenaWalkCompleteSubRef.current.subscribe((msg) => {
+      if (msg?.data) {
+        console.log("[ARENA] arena_walk_complete received -> AUTO mode sent by r2_planner.");
       }
     });
 
