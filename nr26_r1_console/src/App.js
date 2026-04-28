@@ -62,6 +62,8 @@ function App() {
   const commandRef = useRef(null);
   const joyRef = useRef(null);
   const servoCalPubRef = useRef(null);
+  const magazineStatePubRef = useRef(null);
+  const poleStatePubRef = useRef(null);
   const driveModeRef = useRef(null);
   const autoDriveCmdRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
@@ -126,6 +128,9 @@ function App() {
   const [magazineStateIndex, setMagazineStateIndex] = useState(0);
   const [magazineStateValues, setMagazineStateValues] = useState([270, 43, 150, 13]);
   const [magazineStateInfo, setMagazineStateInfo] = useState("未送信");
+  const [poleStateIndex, setPoleStateIndex] = useState(-1);
+  const [poleStateValues, setPoleStateValues] = useState([0, 0, 0, 0]);
+  const [poleStateInfo, setPoleStateInfo] = useState("未送信");
   const [poseX, setPoseX] = useState(0);
   const [poseY, setPoseY] = useState(0);
   const [poseYaw, setPoseYaw] = useState(0);
@@ -193,26 +198,13 @@ function App() {
   const tr = (jaText, enText) => getLocalizedText(language, jaText, enText);
 
   const magazineStatePresets = [
-    { label: "状態0", values: [270, 43, 150, 13] },
-    { label: "状態1", values: [228, 43, 150, 13] },
-    { label: "状態2", values: [186, 43, 150, 13] },
-    { label: "状態3", values: [146, 43, 150, 13] },
-    { label: "状態4", values: [270, 43, 150, 13] },
-    { label: "状態5", values: [270, 10, 150, 13] },
-    { label: "状態6", values: [270, 245, 150, 13] },
-    { label: "状態7", values: [95, 43, 150, 13] },
-    { label: "状態8", values: [270, 43, 150, 13] },
-    { label: "状態9", values: [270, 10, 150, 13] },
-    { label: "状態10", values: [270, 245, 150, 13] },
-    { label: "状態11", values: [50, 43, 150, 13] },
-    { label: "状態12", values: [58, 43, 150, 13] },
-    { label: "状態13", values: [58, 10, 150, 13] },
-    { label: "状態14", values: [58, 245, 150, 13] },
-    { label: "状態15", values: [53, 43, 150, 13] },
-    { label: "状態16", values: [13, 43, 150, 13] },
-    { label: "状態17", values: [58, 10, 150, 13] },
-    { label: "状態18", values: [58, 245, 150, 13] },
-    { label: "状態19", values: [13, 43, 150, 13] },
+    { label: "状態0", angle: 270 },
+    { label: "状態1", angle: 233 },
+    { label: "状態2", angle: 187 },
+    { label: "状態3", angle: 139 },
+    { label: "状態4", angle: 99 },
+    { label: "状態5", angle: 55 },
+    { label: "状態6", angle: 4 },
   ];
   const localizedStatusText =
     status === "接続OK"
@@ -878,6 +870,31 @@ function App() {
     return true;
   };
 
+  const publishMagazineState = (overrideValues = null, showStatus = true) => {
+    if (!operationArmed) {
+      if (showStatus) {
+        setMagazineStateInfo("操作許可がOFFのため送信できません");
+      }
+      return false;
+    }
+
+    if (!magazineStatePubRef.current) {
+      if (showStatus) {
+        setMagazineStateInfo("ROS未接続のため送信できません");
+      }
+      return false;
+    }
+
+    const source = overrideValues || magazineStateValues;
+    const payload = source.slice(0, 4).map((v) => Math.max(0, Math.min(270, Math.round(Number(v) || 0))));
+    magazineStatePubRef.current.publish({ data: payload });
+
+    if (showStatus) {
+      setMagazineStateInfo(`r1_magazine 送信: [${payload.join(", ")}]`);
+    }
+    return true;
+  };
+
   const adjustServoCalibration = (index, direction) => {
     const step = Math.max(1, Math.round(parseFloatSafe(servoCalStep, 1)));
     setServoCalValues((prev) => {
@@ -895,11 +912,42 @@ function App() {
       return;
     }
 
-    const values = [...preset.values];
+    // 角度値から4値配列に変換：[angle, 43, 150, 13]
+    const values = [preset.angle, 43, 150, 13];
     setMagazineStateIndex(index);
     setMagazineStateValues(values);
-    publishServoCalibration(values, true);
-    setMagazineStateInfo(`マガジン状態 ${preset.label} を送信: [${values.join(", ")}]`);
+    publishMagazineState(values, true);
+  };
+
+  const changeMagazineState = (direction) => {
+    const nextIndex = Math.max(0, Math.min(magazineStatePresets.length - 1, magazineStateIndex + direction));
+    applyMagazineStatePreset(nextIndex);
+  };
+
+  const publishPoleState = (poleCount, showStatus = true) => {
+    if (!operationArmed) {
+      if (showStatus) {
+        setPoleStateInfo("操作許可がOFFのため送信できません");
+      }
+      return false;
+    }
+
+    if (!poleStatePubRef.current) {
+      if (showStatus) {
+        setPoleStateInfo("ROS未接続のため送信できません");
+      }
+      return false;
+    }
+
+    const poleValues = [poleCount, 0, 0, 0];
+    setPoleStateIndex(poleCount - 1);
+    setPoleStateValues(poleValues);
+    poleStatePubRef.current.publish({ data: poleValues });
+
+    if (showStatus) {
+      setPoleStateInfo(`r1_pole 送信: [${poleValues.join(", ")}] (${poleCount}本)`);
+    }
+    return true;
   };
 
   const traceSampleMs = Math.max(50, Math.min(10000, Math.round(parseFloatSafe(traceSampleMsInput, 250))));
@@ -1936,6 +1984,18 @@ function App() {
       messageType: "std_msgs/msg/Int32MultiArray",
     });
 
+    magazineStatePubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1_magazine",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
+    poleStatePubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1_pole",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
     rosTopicsServiceRef.current = new ROSLIB.Service({
       ros: rosRef.current,
       name: "/rosapi/topics",
@@ -1977,6 +2037,8 @@ function App() {
         }
       }
       servoCalPubRef.current = null;
+      magazineStatePubRef.current = null;
+      poleStatePubRef.current = null;
       stopCameraStream();
       stopTopicEcho();
       if (rosRef.current) rosRef.current.close();
@@ -2438,10 +2500,10 @@ function App() {
             <section className="serial-bridge-panel">
               <h2 className="serial-packet-title">{tr("マガジン状態モード", "Magazine State Mode")}</h2>
               <p className="serial-packet-hint">
-                {tr("R1_MotionCtrl.cpp の CROSS 状態を元に、機構側マガジンの代表状態を送信します。", "Send mechanism-side magazine states based on the CROSS states in R1_MotionCtrl.cpp.")}
+                {tr("r1_magazine へ7つのマガジン状態を送信します。", "Send 7 magazine states to r1_magazine.")}
               </p>
 
-              <div className="magazine-state-layout">
+              <div className="magazine-state-layout" style={{ marginTop: 16 }}>
                 <div className="magazine-state-ring">
                   {magazineStatePresets.map((preset, index) => {
                     const angle = (index / magazineStatePresets.length) * 360;
@@ -2457,7 +2519,7 @@ function App() {
                       >
                         <div>{preset.label}</div>
                         <div style={{ fontSize: 12, opacity: 0.9 }}>
-                          [{preset.values.join(", ")}]
+                          {preset.angle}°
                         </div>
                       </button>
                     );
@@ -2475,6 +2537,29 @@ function App() {
                 </div>
               </div>
 
+              <div className="serial-packet-controls" style={{ marginTop: 12, justifyContent: "center", gap: 12 }}>
+                <button
+                  className="connection-button btn-neutral"
+                  type="button"
+                  onClick={() => changeMagazineState(-1)}
+                  disabled={magazineStateIndex === 0}
+                >
+                  ← {tr("前へ", "Prev")}
+                </button>
+                <button
+                  className="connection-button btn-neutral"
+                  type="button"
+                  onClick={() => changeMagazineState(1)}
+                  disabled={magazineStateIndex === magazineStatePresets.length - 1}
+                >
+                  {tr("次へ", "Next")} →
+                </button>
+              </div>
+
+              <div style={{ marginTop: 8, textAlign: "center", opacity: 0.8 }}>
+                {magazineStateIndex + 1} / {magazineStatePresets.length}
+              </div>
+
               <div className="serial-packet-controls" style={{ marginTop: 12 }}>
                 <button className="connection-button btn-send" type="button" onClick={() => applyMagazineStatePreset(magazineStateIndex)}>
                   {tr("現在の状態を再送信", "Resend Current State")}
@@ -2489,7 +2574,37 @@ function App() {
               </p>
 
               <p className="connection-hint">
-                {tr("マガジン側の現在値", "Magazine-side values")} : [{magazineStateValues.join(", ")}]
+                {tr("マガジン側のサーボ角度", "Magazine servo angle")} : {magazineStatePresets[magazineStateIndex]?.angle || "-"}°
+              </p>
+            </section>
+          )}
+
+          {isPageActive("magazine-state") && (
+            <section className="serial-bridge-panel" style={{ marginTop: 16 }}>
+              <h2 className="serial-packet-title">{tr("ポール本数モード", "Pole Count Mode")}</h2>
+              <p className="serial-packet-hint">
+                {tr("r1_pole へポール本数を送信します。", "Send pole count to r1_pole.")}
+              </p>
+
+              <div className="serial-packet-controls" style={{ marginTop: 12, gap: 8 }}>
+                {[1, 2, 3, 4].map((poleCount) => (
+                  <button
+                    key={`pole-state-${poleCount}`}
+                    className={`connection-button ${poleStateIndex === poleCount - 1 ? "btn-send" : "btn-neutral"}`}
+                    type="button"
+                    onClick={() => publishPoleState(poleCount)}
+                  >
+                    {tr(`${poleCount}本`, `${poleCount} Pole${poleCount > 1 ? 's' : ''}`)}
+                  </button>
+                ))}
+              </div>
+
+              <p className="connection-hint">
+                {translateRuntimeText(poleStateInfo)}
+              </p>
+
+              <p className="connection-hint">
+                {tr("ポール側の現在値", "Pole-side values")} : [{poleStateValues.join(", ")}]
               </p>
             </section>
           )}
