@@ -63,7 +63,12 @@ function App() {
   const joyRef = useRef(null);
   const servoCalPubRef = useRef(null);
   const magazineStatePubRef = useRef(null);
+  const magazineActionPubRef = useRef(null);
   const poleStatePubRef = useRef(null);
+  const taskStateRef = useRef(null);
+  const taskColorRef = useRef(null);
+  const taskCellRef = useRef(null);
+  const taskStatusSubRef = useRef(null);
   const driveModeRef = useRef(null);
   const autoDriveCmdRef = useRef(null);
   const rosTopicsServiceRef = useRef(null);
@@ -128,6 +133,7 @@ function App() {
   const [magazineStateIndex, setMagazineStateIndex] = useState(0);
   const [magazineStateValues, setMagazineStateValues] = useState([270, 43, 150, 13]);
   const [magazineStateInfo, setMagazineStateInfo] = useState("未送信");
+  const [selectedMagazineAction, setSelectedMagazineAction] = useState({ slot: null, action: null, lock: false, load: false });
   const [poleStateIndex, setPoleStateIndex] = useState(-1);
   const [poleStateValues, setPoleStateValues] = useState([0, 0, 0, 0]);
   const [poleStateInfo, setPoleStateInfo] = useState("未送信");
@@ -946,6 +952,45 @@ function App() {
 
     if (showStatus) {
       setPoleStateInfo(`r1_pole 送信: [${poleValues.join(", ")}] (${poleCount}本)`);
+    }
+    return true;
+  };
+
+  const publishMagazineAction = (slotIndex, action, showStatus = true) => {
+    // action: 'collect' | 'lock' | 'unlock' | 'load' | 'unload' | 'use' | 'discard'
+    if (!operationArmed) {
+      if (showStatus) setMagazineStateInfo("操作許可がOFFのため送信できません");
+      return false;
+    }
+
+    if (!magazineActionPubRef.current) {
+      if (showStatus) setMagazineStateInfo("ROS未接続のため送信できません");
+      return false;
+    }
+
+    const actionMap = {
+      collect: 0,
+      lock: 3,
+      unlock: 4,
+      load: 5,
+      unload: 6,
+      use: 1,
+      discard: 2
+    };
+    const code = actionMap[action] !== undefined ? actionMap[action] : 0;
+    const payload = [slotIndex + 1, code];
+    magazineActionPubRef.current.publish({ data: payload });
+
+    if (showStatus) {
+      const jaAction =
+        action === "collect" ? "回収" :
+        action === "lock" ? "ロック" :
+        action === "unlock" ? "ロック解除" :
+        action === "load" ? "装填" :
+        action === "unload" ? "装填解除" :
+        action === "use" ? "使用" :
+        "廃棄";
+      setMagazineStateInfo(`r1_magazine_action 送信: slot=${slotIndex + 1} action=${jaAction}`);
     }
     return true;
   };
@@ -1984,9 +2029,45 @@ function App() {
       messageType: "std_msgs/msg/Int32MultiArray",
     });
 
+    // State/Color/Cell publishers for r1_planner integration
+    taskStateRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1/task_state",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    taskColorRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1/task_color",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    taskCellRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1/task_cell",
+      messageType: "std_msgs/msg/Int32",
+    });
+
+    // Status subscriber to keep UI in sync
+    taskStatusSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1/task_status",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+    taskStatusSubRef.current.subscribe((msg) => {
+      const data = Array.isArray(msg?.data) ? msg.data : [];
+      console.log("[r1/task_status]", data);
+    });
+
     magazineStatePubRef.current = new ROSLIB.Topic({
       ros: rosRef.current,
       name: "r1_magazine",
+      messageType: "std_msgs/msg/Int32MultiArray",
+    });
+
+    magazineActionPubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "r1_magazine_action",
       messageType: "std_msgs/msg/Int32MultiArray",
     });
 
@@ -2038,7 +2119,19 @@ function App() {
       }
       servoCalPubRef.current = null;
       magazineStatePubRef.current = null;
+      magazineActionPubRef.current = null;
       poleStatePubRef.current = null;
+      taskStateRef.current = null;
+      taskColorRef.current = null;
+      taskCellRef.current = null;
+      if (taskStatusSubRef.current) {
+        try {
+          taskStatusSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing task status:", error);
+        }
+      }
+      taskStatusSubRef.current = null;
       stopCameraStream();
       stopTopicEcho();
       if (rosRef.current) rosRef.current.close();
@@ -2499,113 +2592,90 @@ function App() {
           {isPageActive("magazine-state") && (
             <section className="serial-bridge-panel">
               <h2 className="serial-packet-title">{tr("マガジン状態モード", "Magazine State Mode")}</h2>
-              <p className="serial-packet-hint">
-                {tr("r1_magazine へ7つのマガジン状態を送信します。", "Send 7 magazine states to r1_magazine.")}
-              </p>
+              <p className="serial-packet-hint">{tr("各スロット(1-4)に対して回収・使用・廃棄を送信します。", "Send Collect/Use/Discard for each slot (1-4).")}</p>
 
-              <div className="magazine-state-layout" style={{ marginTop: 16 }}>
-                <div className="magazine-state-ring">
-                  {magazineStatePresets.map((preset, index) => {
-                    const angle = (index / magazineStatePresets.length) * 360;
-                    return (
+              <div style={{ marginTop: 8 }}>
+                {[0, 1, 2, 3].map((slot) => (
+                  <div key={`mag-action-${slot}`} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid rgba(200,200,200,0.2)' }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: '#333', letterSpacing: '0.5px' }}>{tr(`スロット ${slot + 1}`, `Slot ${slot + 1}`)}</div>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                       <button
-                        key={`magazine-state-${index}`}
-                        className={`connection-button magazine-state-button ${magazineStateIndex === index ? "btn-send" : "btn-neutral"}`}
+                        className={`connection-button ${selectedMagazineAction.slot === slot && selectedMagazineAction.action === 'collect' ? 'btn-send' : 'btn-neutral'}`}
                         type="button"
-                        onClick={() => applyMagazineStatePreset(index)}
-                        style={{
-                          transform: `translate(-50%, -50%) rotate(${angle}deg) translate(180px) rotate(${-angle}deg)`,
+                        onClick={() => {
+                          publishMagazineAction(slot, 'collect');
+                          setSelectedMagazineAction(prev => ({ ...prev, slot, action: 'collect' }));
                         }}
+                        style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100 }}
                       >
-                        <div>{preset.label}</div>
-                        <div style={{ fontSize: 12, opacity: 0.9 }}>
-                          {preset.angle}°
-                        </div>
+                        {tr('回収', 'Collect')}
                       </button>
-                    );
-                  })}
 
-                  <div className="magazine-state-center">
-                    <div className="magazine-state-center-label">{tr("選択中", "Selected")}</div>
-                    <div className="magazine-state-center-title">
-                      {magazineStatePresets[magazineStateIndex]?.label || tr("未選択", "None")}
-                    </div>
-                    <div className="magazine-state-center-values">
-                      [{magazineStateValues.join(", ")}]
+                      <button
+                        className={`connection-button ${selectedMagazineAction.slot === slot && selectedMagazineAction.action === 'use' ? 'btn-send' : 'btn-neutral'}`}
+                        type="button"
+                        onClick={() => {
+                          publishMagazineAction(slot, 'use');
+                          setSelectedMagazineAction(prev => ({ ...prev, slot, action: 'use' }));
+                        }}
+                        style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100 }}
+                      >
+                        {tr('使用', 'Use')}
+                      </button>
+                      <button
+                        className={`connection-button ${selectedMagazineAction.slot === slot && selectedMagazineAction.action === 'discard' ? 'btn-send' : 'btn-neutral'}`}
+                        type="button"
+                        onClick={() => {
+                          publishMagazineAction(slot, 'discard');
+                          setSelectedMagazineAction(prev => ({ ...prev, slot, action: 'discard' }));
+                        }}
+                        style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100 }}
+                      >
+                        {tr('廃棄', 'Discard')}
+                      </button>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="serial-packet-controls" style={{ marginTop: 12, justifyContent: "center", gap: 12 }}>
-                <button
-                  className="connection-button btn-neutral"
-                  type="button"
-                  onClick={() => changeMagazineState(-1)}
-                  disabled={magazineStateIndex === 0}
-                >
-                  ← {tr("前へ", "Prev")}
-                </button>
-                <button
-                  className="connection-button btn-neutral"
-                  type="button"
-                  onClick={() => changeMagazineState(1)}
-                  disabled={magazineStateIndex === magazineStatePresets.length - 1}
-                >
-                  {tr("次へ", "Next")} →
-                </button>
-              </div>
-
-              <div style={{ marginTop: 8, textAlign: "center", opacity: 0.8 }}>
-                {magazineStateIndex + 1} / {magazineStatePresets.length}
-              </div>
-
-              <div className="serial-packet-controls" style={{ marginTop: 12 }}>
-                <button className="connection-button btn-send" type="button" onClick={() => applyMagazineStatePreset(magazineStateIndex)}>
-                  {tr("現在の状態を再送信", "Resend Current State")}
-                </button>
-                <button className="connection-button btn-neutral" type="button" onClick={() => applyMagazineStatePreset(0)}>
-                  {tr("初期状態へ", "Reset to Initial")}
-                </button>
-              </div>
-
-              <p className="connection-hint">
-                {translateRuntimeText(magazineStateInfo)}
-              </p>
-
-              <p className="connection-hint">
-                {tr("マガジン側のサーボ角度", "Magazine servo angle")} : {magazineStatePresets[magazineStateIndex]?.angle || "-"}°
-              </p>
-            </section>
-          )}
-
-          {isPageActive("magazine-state") && (
-            <section className="serial-bridge-panel" style={{ marginTop: 16 }}>
-              <h2 className="serial-packet-title">{tr("ポール本数モード", "Pole Count Mode")}</h2>
-              <p className="serial-packet-hint">
-                {tr("r1_pole へポール本数を送信します。", "Send pole count to r1_pole.")}
-              </p>
-
-              <div className="serial-packet-controls" style={{ marginTop: 12, gap: 8 }}>
-                {[1, 2, 3, 4].map((poleCount) => (
-                  <button
-                    key={`pole-state-${poleCount}`}
-                    className={`connection-button ${poleStateIndex === poleCount - 1 ? "btn-send" : "btn-neutral"}`}
-                    type="button"
-                    onClick={() => publishPoleState(poleCount)}
-                  >
-                    {tr(`${poleCount}本`, `${poleCount} Pole${poleCount > 1 ? 's' : ''}`)}
-                  </button>
                 ))}
+
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(200,200,200,0.3)' }}>
+                  <div style={{ fontSize: 14, marginBottom: 10, color: '#666' }}>{tr('選択スロット: ', 'Selected Slot: ')}{selectedMagazineAction.slot !== null ? selectedMagazineAction.slot + 1 : tr('未選択', 'None')}</div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <button
+                      className={`connection-button ${selectedMagazineAction.lock ? 'btn-send' : 'btn-neutral'}`}
+                      type="button"
+                      disabled={selectedMagazineAction.slot === null}
+                      onClick={() => {
+                        if (selectedMagazineAction.slot !== null) {
+                          const newLockState = !selectedMagazineAction.lock;
+                          publishMagazineAction(selectedMagazineAction.slot, newLockState ? 'lock' : 'unlock');
+                          setSelectedMagazineAction({ ...selectedMagazineAction, lock: newLockState });
+                        }
+                      }}
+                      style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100, opacity: selectedMagazineAction.slot === null ? 0.5 : 1 }}
+                    >
+                      {tr('ロック', 'Lock')} {selectedMagazineAction.lock ? '✓' : ''}
+                    </button>
+
+                    <button
+                      className={`connection-button ${selectedMagazineAction.load ? 'btn-send' : 'btn-neutral'}`}
+                      type="button"
+                      disabled={selectedMagazineAction.slot === null}
+                      onClick={() => {
+                        if (selectedMagazineAction.slot !== null) {
+                          const newLoadState = !selectedMagazineAction.load;
+                          publishMagazineAction(selectedMagazineAction.slot, newLoadState ? 'load' : 'unload');
+                          setSelectedMagazineAction({ ...selectedMagazineAction, load: newLoadState });
+                        }
+                      }}
+                      style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100, opacity: selectedMagazineAction.slot === null ? 0.5 : 1 }}
+                    >
+                      {tr('装填', 'Load')} {selectedMagazineAction.load ? '✓' : ''}
+                    </button>
+                  </div>
+                </div>
+
+                <p className="connection-hint">{translateRuntimeText(magazineStateInfo)}</p>
               </div>
-
-              <p className="connection-hint">
-                {translateRuntimeText(poleStateInfo)}
-              </p>
-
-              <p className="connection-hint">
-                {tr("ポール側の現在値", "Pole-side values")} : [{poleStateValues.join(", ")}]
-              </p>
             </section>
           )}
 
