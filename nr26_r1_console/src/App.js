@@ -133,7 +133,10 @@ function App() {
   const [magazineStateIndex, setMagazineStateIndex] = useState(0);
   const [magazineStateValues, setMagazineStateValues] = useState([270, 43, 150, 13]);
   const [magazineStateInfo, setMagazineStateInfo] = useState("未送信");
-  const [selectedMagazineAction, setSelectedMagazineAction] = useState({ slot: null, action: null, lock: false, load: false });
+  const [selectedMagazineAction, setSelectedMagazineAction] = useState({ slot: 0, action: 'collect', lock: false, load: false });
+  const [magazineAngle, setMagazineAngle] = useState(90); // degrees
+  const draggingRef = useRef(false);
+  const svgRef = useRef(null);
   const [poleStateIndex, setPoleStateIndex] = useState(-1);
   const [poleStateValues, setPoleStateValues] = useState([0, 0, 0, 0]);
   const [poleStateInfo, setPoleStateInfo] = useState("未送信");
@@ -875,6 +878,103 @@ function App() {
     }
     return true;
   };
+
+    // --- Magazine angle / draggable current position helpers ---
+    const normalizeDeg = (d) => {
+      let ang = d;
+      while (ang <= -180) ang += 360;
+      while (ang > 180) ang -= 360;
+      return ang;
+    };
+
+    const getSlotAngle = (slotIndex) => 90 + slotIndex * 30;
+
+    const getActionAngle = (action) => {
+      if (action === 'collect' || action === 'lock') return 90;
+      if (action === 'use' || action === 'load') return -30;
+      if (action === 'discard' || action === 'unlock' || action === 'unload') return -90;
+      return 90;
+    };
+
+    const pointFromAngle = (angleDeg, radius) => {
+      const rad = angleDeg * Math.PI / 180;
+      return {
+        cx: 130 + Math.cos(rad) * radius,
+        cy: 130 - Math.sin(rad) * radius,
+      };
+    };
+
+    const getMagazineRingOffset = () => {
+      if (selectedMagazineAction.slot === null) {
+        return 0;
+      }
+      return getActionAngle(selectedMagazineAction.action) - getSlotAngle(selectedMagazineAction.slot);
+    };
+
+    const angleFromEvent = (e) => {
+      const svg = svgRef.current;
+      if (!svg) return 0;
+      const rect = svg.getBoundingClientRect();
+      // viewBox is 0 0 260 260
+      const vbW = 260;
+      const vbH = 260;
+      const x = (e.clientX - rect.left) * (vbW / rect.width);
+      const y = (e.clientY - rect.top) * (vbH / rect.height);
+      const cx = vbW / 2;
+      const cy = vbH / 2;
+      const rad = Math.atan2(y - cy, x - cx);
+      const deg = rad * 180 / Math.PI;
+      return normalizeDeg(deg);
+    };
+
+    const findNearestAction = (deg) => {
+      // action angles: collect=90, use=-30, discard=-90
+      const actions = [{name: 'collect', angle: 90}, {name: 'use', angle: -30}, {name: 'discard', angle: -90}];
+      let best = null;
+      let bestDist = 1e9;
+      for (const a of actions) {
+        const diff = Math.abs(normalizeDeg(deg - a.angle));
+        if (diff < bestDist) {
+          bestDist = diff;
+          best = a;
+        }
+      }
+      // tolerance pi/4 ~= 45deg
+      return bestDist <= 45 ? best : null;
+    };
+
+    const onPointerMove = (e) => {
+      if (!draggingRef.current) return;
+      const deg = angleFromEvent(e);
+      setMagazineAngle(deg);
+      const nearest = findNearestAction(deg);
+      if (nearest && selectedMagazineAction.slot !== null) {
+        setSelectedMagazineAction(prev => ({ ...prev, action: nearest.name }));
+        setMagazineAngle(getActionAngle(nearest.name));
+      }
+    };
+
+    const onPointerUp = (e) => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    const onPointerDownMarker = (e) => {
+      draggingRef.current = true;
+      // capture movement on window
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      // update immediately
+      const deg = angleFromEvent(e);
+      setMagazineAngle(deg);
+      const nearest = findNearestAction(deg);
+      if (nearest && selectedMagazineAction.slot !== null) {
+        setSelectedMagazineAction(prev => ({ ...prev, action: nearest.name }));
+        setMagazineAngle(getActionAngle(nearest.name));
+      }
+    };
 
   const publishMagazineState = (overrideValues = null, showStatus = true) => {
     if (!operationArmed) {
@@ -2594,7 +2694,8 @@ function App() {
               <h2 className="serial-packet-title">{tr("マガジン状態モード", "Magazine State Mode")}</h2>
               <p className="serial-packet-hint">{tr("各スロット(1-4)に対して回収・使用・廃棄を送信します。", "Send Collect/Use/Discard for each slot (1-4).")}</p>
 
-              <div style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 20, marginTop: 8, alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
                 {[0, 1, 2, 3].map((slot) => (
                   <div key={`mag-action-${slot}`} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid rgba(200,200,200,0.2)' }}>
                     <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: '#333', letterSpacing: '0.5px' }}>{tr(`スロット ${slot + 1}`, `Slot ${slot + 1}`)}</div>
@@ -2605,6 +2706,7 @@ function App() {
                         onClick={() => {
                           publishMagazineAction(slot, 'collect');
                           setSelectedMagazineAction(prev => ({ ...prev, slot, action: 'collect' }));
+                          setMagazineAngle(getActionAngle('collect'));
                         }}
                         style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100 }}
                       >
@@ -2617,6 +2719,7 @@ function App() {
                         onClick={() => {
                           publishMagazineAction(slot, 'use');
                           setSelectedMagazineAction(prev => ({ ...prev, slot, action: 'use' }));
+                          setMagazineAngle(getActionAngle('use'));
                         }}
                         style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100 }}
                       >
@@ -2628,6 +2731,7 @@ function App() {
                         onClick={() => {
                           publishMagazineAction(slot, 'discard');
                           setSelectedMagazineAction(prev => ({ ...prev, slot, action: 'discard' }));
+                          setMagazineAngle(getActionAngle('discard'));
                         }}
                         style={{ padding: '12px 20px', fontSize: 16, fontWeight: 600, minWidth: 100 }}
                       >
@@ -2675,6 +2779,61 @@ function App() {
                 </div>
 
                 <p className="connection-hint">{translateRuntimeText(magazineStateInfo)}</p>
+                </div>
+
+                <div style={{ width: 340, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                  <svg ref={svgRef} viewBox="0 0 260 260" width="300" height="300" className="magazine-state-ring" aria-label={tr('マガジン位置表示','Magazine position')}
+                    role="img">
+                    <circle cx="130" cy="130" r="86" fill="rgba(255,255,255,0.96)" stroke="rgba(129,150,168,0.12)" />
+
+                    {/* action markers outside circumference */}
+                    {(() => {
+                      const markers = [
+                        { name: tr('回収','Collect'), angle: 90, label: '90deg' },
+                        { name: tr('使用','Use'), angle: -30, label: '-30deg' },
+                        { name: tr('廃棄','Discard'), angle: -90, label: '-90deg' }
+                      ];
+                      return markers.map((m, idx) => {
+                        const { cx, cy } = pointFromAngle(m.angle, 112);
+                        return (
+                          <g key={`mag-marker-${idx}`}>
+                            <text x={cx} y={cy} fontSize="12" fontWeight={700} textAnchor="middle" dominantBaseline="middle" fill="#1f2937">{m.name}</text>
+                            <text x={cx} y={cy+14} fontSize="11" textAnchor="middle" fill="#666">{m.label}</text>
+                          </g>
+                        );
+                      });
+                    })()}
+
+                    {/* four slots on the unit-circle arc: 90, 120, 150, 180 degrees */}
+                    {(() => {
+                      const currentSlot = selectedMagazineAction.slot;
+                      const ringOffset = getMagazineRingOffset();
+                      return [0, 1, 2, 3].map((slotIndex) => {
+                        const baseAngle = getSlotAngle(slotIndex);
+                        const isSelected = currentSlot === slotIndex;
+                        const displayAngle = baseAngle + ringOffset;
+                        const radius = 72;
+                        const { cx, cy } = pointFromAngle(displayAngle, radius);
+                        const active = isSelected;
+                        return (
+                          <g key={`mag-slot-${slotIndex}`}>
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={14}
+                              fill={active ? '#2e7df6' : '#eef3fb'}
+                              stroke={active ? '#123aa8' : 'rgba(0,0,0,0.08)'}
+                              strokeWidth={2}
+                              onPointerDown={active ? onPointerDownMarker : undefined}
+                              style={{ touchAction: 'none', cursor: active ? 'grab' : 'default' }}
+                            />
+                            <text x={cx} y={cy + 4} fontSize="11" fontWeight={800} textAnchor="middle" fill={active ? '#fff' : '#1f2937'}>{slotIndex + 1}</text>
+                          </g>
+                        );
+                      });
+                    })()}
+                  </svg>
+                </div>
               </div>
             </section>
           )}
