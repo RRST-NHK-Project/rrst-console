@@ -91,6 +91,75 @@ const PLANNER_MODE_LABELS = {
   1: { ja: "自動遷移", en: "Auto" },
 };
 
+const PLANNER_DEBUG_SOURCES = [
+  {
+    key: "r2_planner",
+    label: "r2_planner",
+    nodeNames: ["r2_task_manager"],
+  },
+  {
+    key: "r2_auto",
+    label: "r2_auto",
+    nodeNames: ["pid_mecanum_controller"],
+  },
+  {
+    key: "r2_sc",
+    label: "r2_sc",
+    nodeNames: ["sequence_ctrl_node", "hardware_control_6"],
+  },
+  {
+    key: "r2_mc",
+    label: "r2_mc",
+    nodeNames: ["hardware_control_7"],
+  },
+];
+
+const PLANNER_DEBUG_MAX_LOGS = 60;
+
+const createPlannerDebugLogs = () =>
+  Object.fromEntries(PLANNER_DEBUG_SOURCES.map((source) => [source.key, []]));
+
+const normalizeRosNodeName = (value) => {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const parts = text.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : text;
+};
+
+const getPlannerDebugSourceKey = (nodeName) => {
+  const normalized = normalizeRosNodeName(nodeName);
+  const matchedSource = PLANNER_DEBUG_SOURCES.find((source) => source.nodeNames.includes(normalized));
+  return matchedSource ? matchedSource.key : "";
+};
+
+const getRosLogLevelMeta = (levelValue) => {
+  const level = Number(levelValue) || 0;
+  if (level >= 50) {
+    return { label: "FATAL", className: "planner-debug-level-fatal" };
+  }
+  if (level >= 40) {
+    return { label: "ERROR", className: "planner-debug-level-error" };
+  }
+  if (level >= 30) {
+    return { label: "WARN", className: "planner-debug-level-warn" };
+  }
+  if (level >= 20) {
+    return { label: "INFO", className: "planner-debug-level-info" };
+  }
+  return { label: "DEBUG", className: "planner-debug-level-debug" };
+};
+
+const getRosLogLocation = (msg) => {
+  const fileName = String(msg?.file || "").split("/").filter(Boolean).pop() || "";
+  const line = Number(msg?.line);
+  if (!fileName) {
+    return "";
+  }
+  return Number.isFinite(line) && line > 0 ? `${fileName}:${line}` : fileName;
+};
+
 const getPlannerStateLabel = (code, language, customStateLabelMap = null, stateNameOverrides = null) => {
   const override = stateNameOverrides ? stateNameOverrides[code] : null;
   if (override?.labelJa || override?.labelEn) {
@@ -337,6 +406,7 @@ function App() {
   const wallAngleSubRef = useRef(null);
   const arucoPoseSubRef = useRef(null);
   const arucoIdSubRef = useRef(null);
+  const plannerRosoutSubRef = useRef(null);
   const serialPeriodicTimerRef = useRef(null);
   const serialBridgeLogBoxRef = useRef(null);
   const poseGraphRef = useRef(null);
@@ -443,6 +513,7 @@ function App() {
   const [plannerSelectedExportPath, setPlannerSelectedExportPath] = useState("");
   const [draggedPlannerStateCode, setDraggedPlannerStateCode] = useState(null);
   const [plannerDropTargetCode, setPlannerDropTargetCode] = useState(null);
+  const [plannerDebugLogs, setPlannerDebugLogs] = useState(() => createPlannerDebugLogs());
   const [arucoTargetForwardInput, setArucoTargetForwardInput] = useState("0.0");
   const [arucoTargetLateralInput, setArucoTargetLateralInput] = useState("0.0");
   const [arucoTargetYawInput, setArucoTargetYawInput] = useState("0.0");
@@ -1947,6 +2018,10 @@ function App() {
   const togglePlannerTransitionMode = () => {
     const nextMode = plannerTransitionModeCode === 1 ? 0 : 1;
     publishPlannerTransitionMode(nextMode);
+  };
+
+  const clearPlannerDebugLogs = () => {
+    setPlannerDebugLogs(createPlannerDebugLogs());
   };
 
   const plannerStateLabel = getPlannerStateLabel(plannerStateCode, language, plannerCustomStateLabelMap, plannerStateNameOverrides);
@@ -3955,6 +4030,7 @@ function App() {
 
   useEffect(() => {
     setStatus("接続中...");
+    setPlannerDebugLogs(createPlannerDebugLogs());
 
     // ROS接続
     rosRef.current = new ROSLIB.Ros({
@@ -4439,6 +4515,39 @@ function App() {
       setPlannerStatusText(String(msg?.data || ""));
     });
 
+    plannerRosoutSubRef.current = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: "/rosout_agg",
+      messageType: "rcl_interfaces/msg/Log",
+      throttle_rate: 100,
+    });
+    plannerRosoutSubRef.current.subscribe((msg) => {
+      const sourceKey = getPlannerDebugSourceKey(msg?.name);
+      if (!sourceKey) {
+        return;
+      }
+
+      const levelMeta = getRosLogLevelMeta(msg?.level);
+      const normalizedNodeName = normalizeRosNodeName(msg?.name);
+      const messageText = typeof msg?.msg === "string"
+        ? msg.msg
+        : JSON.stringify(msg?.msg ?? "");
+      const nextEntry = {
+        id: `${sourceKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        time: new Date().toLocaleTimeString(),
+        nodeName: normalizedNodeName,
+        levelLabel: levelMeta.label,
+        levelClassName: levelMeta.className,
+        messageText,
+        locationText: getRosLogLocation(msg),
+      };
+
+      setPlannerDebugLogs((prev) => ({
+        ...prev,
+        [sourceKey]: [nextEntry, ...(prev[sourceKey] || [])].slice(0, PLANNER_DEBUG_MAX_LOGS),
+      }));
+    });
+
     rosTopicsServiceRef.current = new ROSLIB.Service({
       ros: rosRef.current,
       name: "/rosapi/topics",
@@ -4516,6 +4625,13 @@ function App() {
           console.warn("Error unsubscribing task status text topic:", error);
         }
       }
+      if (plannerRosoutSubRef.current) {
+        try {
+          plannerRosoutSubRef.current.unsubscribe?.();
+        } catch (error) {
+          console.warn("Error unsubscribing planner rosout topic:", error);
+        }
+      }
       if (mffStepCompleteSubRef.current) {
         try {
           mffStepCompleteSubRef.current.unsubscribe?.();
@@ -4574,6 +4690,7 @@ function App() {
       stopCubeDebugStream();
       stopCameraStream();
       stopTopicEcho();
+      plannerRosoutSubRef.current = null;
       mffStepCompleteSubRef.current = null;
       arenaWalkCompleteSubRef.current = null;
       mffStepCompletePubRef.current = null;
@@ -4761,7 +4878,7 @@ function App() {
               <button className={`ps-button ps-system ${buttons[8] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(8)}>
                 SHARE
               </button>
-              <button className={`ps-button ps-system ps-home ${buttons[12] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(12)}>
+              <button className={`ps-button ps-system ps-home ${buttons[10] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(10)}>
                 PS
               </button>
               <button className={`ps-button ps-system ${buttons[9] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(9)}>
@@ -4770,10 +4887,10 @@ function App() {
             </div>
 
             <div className="ps-stick-row-fullscreen">
-              <button className={`ps-button ps-stick ${buttons[10] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(10)}>
+              <button className={`ps-button ps-stick ${buttons[11] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(11)}>
                 L3
               </button>
-              <button className={`ps-button ps-stick ${buttons[11] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(11)}>
+              <button className={`ps-button ps-stick ${buttons[12] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(12)}>
                 R3
               </button>
             </div>
@@ -4996,7 +5113,7 @@ function App() {
                         <button className={`ps-button ps-system ${buttons[8] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(8)}>
                           SHARE
                         </button>
-                        <button className={`ps-button ps-system ps-home ${buttons[12] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(12)}>
+                        <button className={`ps-button ps-system ps-home ${buttons[10] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(10)}>
                           PS
                         </button>
                         <button className={`ps-button ps-system ${buttons[9] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(9)}>
@@ -5021,10 +5138,10 @@ function App() {
                     </div>
 
                     <div className="ps-stick-row">
-                      <button className={`ps-button ps-stick ${buttons[10] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(10)}>
+                      <button className={`ps-button ps-stick ${buttons[11] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(11)}>
                         L3
                       </button>
-                      <button className={`ps-button ps-stick ${buttons[11] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(11)}>
+                      <button className={`ps-button ps-stick ${buttons[12] === 1 ? "ps-active" : ""}`} {...getButtonPressProps(12)}>
                         R3
                       </button>
                     </div>
@@ -6107,6 +6224,64 @@ function App() {
                   </div>
                 </div>
                 <p className="connection-hint planner-status-text">{plannerStatusText || tr("状態テキスト未受信", "No status text yet")}</p>
+              </section>
+
+              <section className="serial-bridge-card planner-status-card planner-status-card-wide planner-debug-card">
+                <div className="planner-debug-header">
+                  <div>
+                    <h3 className="serial-bridge-title">{tr("デバッグ出力", "Debug Output")}</h3>
+                    <p className="connection-hint planner-debug-hint">
+                      {tr(
+                        "ROS の /rosout_agg を購読して、r2_planner / r2_auto / r2_sc / r2_mc のログをまとめて表示します。",
+                        "Subscribes to ROS /rosout_agg and shows logs from r2_planner / r2_auto / r2_sc / r2_mc."
+                      )}
+                      {` `}
+                      {tr("接続状態", "Connection")}: {localizedStatusText}
+                    </p>
+                  </div>
+                  <button className="serial-clear-button" onClick={clearPlannerDebugLogs}>
+                    {tr("ログをクリア", "Clear Logs")}
+                  </button>
+                </div>
+
+                <div className="planner-debug-grid">
+                  {PLANNER_DEBUG_SOURCES.map((source) => {
+                    const logs = plannerDebugLogs[source.key] || [];
+                    return (
+                      <section key={`planner-debug-${source.key}`} className="planner-debug-source-card">
+                        <div className="planner-debug-source-header">
+                          <div>
+                            <h4 className="planner-debug-source-title">{source.label}</h4>
+                            <p className="planner-debug-source-node">
+                              {tr("対象ノード", "Nodes")}: {source.nodeNames.join(", ")}
+                            </p>
+                          </div>
+                          <span className="planner-field-badge">{tr("件数", "Count")}: {logs.length}</span>
+                        </div>
+
+                        {logs.length === 0 ? (
+                          <p className="connection-hint planner-debug-empty">
+                            {tr("まだログを受信していません。", "No logs received yet.")}
+                          </p>
+                        ) : (
+                          <div className="planner-debug-log-list">
+                            {logs.map((entry) => (
+                              <article key={entry.id} className="planner-debug-log-item">
+                                <div className="planner-debug-log-meta">
+                                  <span className={`planner-debug-log-level ${entry.levelClassName}`}>{entry.levelLabel}</span>
+                                  <span>{entry.time}</span>
+                                  <span>{entry.nodeName}</span>
+                                  {entry.locationText ? <span>{entry.locationText}</span> : null}
+                                </div>
+                                <div className="planner-debug-log-message">{entry.messageText}</div>
+                              </article>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
               </section>
 
               <section className="serial-bridge-card planner-controls-panel">

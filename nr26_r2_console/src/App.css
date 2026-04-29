@@ -1062,6 +1062,138 @@
   min-height: 2.2em;
 }
 
+.planner-debug-card {
+  margin-top: 10px;
+}
+
+.planner-debug-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.planner-debug-hint {
+  margin-top: 6px;
+}
+
+.planner-debug-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.planner-debug-source-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.planner-debug-source-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.planner-debug-source-title {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.95rem;
+}
+
+.planner-debug-source-node {
+  margin: 4px 0 0;
+  color: var(--text-sub);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.planner-debug-empty {
+  margin-top: 2px;
+}
+
+.planner-debug-log-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.planner-debug-log-item {
+  min-width: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(248, 249, 252, 0.96);
+  padding: 8px;
+}
+
+.planner-debug-log-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--text-sub);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.planner-debug-log-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 50px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.planner-debug-level-debug {
+  background: rgba(120, 144, 156, 0.18);
+  color: #455a64;
+}
+
+.planner-debug-level-info {
+  background: rgba(30, 136, 229, 0.14);
+  color: #1565c0;
+}
+
+.planner-debug-level-warn {
+  background: rgba(255, 179, 0, 0.18);
+  color: #8d5f00;
+}
+
+.planner-debug-level-error {
+  background: rgba(229, 57, 53, 0.16);
+  color: #b71c1c;
+}
+
+.planner-debug-level-fatal {
+  background: rgba(123, 31, 162, 0.16);
+  color: #6a1b9a;
+}
+
+.planner-debug-log-message {
+  margin-top: 6px;
+  color: var(--text-main);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .planner-mff-progress-wrap {
   margin-top: 10px;
   padding: 8px;
@@ -1878,6 +2010,14 @@
 
   .planner-virtual-flag-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .planner-debug-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planner-debug-source-header {
+    flex-direction: column;
   }
 }
 
