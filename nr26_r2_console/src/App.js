@@ -6035,7 +6035,7 @@ function App() {
                   <section className="planner-status-card planner-manual-transition-card">
                     <h3 className="serial-bridge-title">{tr("手動遷移", "Manual Transition")}</h3>
                     <p className="connection-hint">
-                      {tr("手動モードでのみ有効です。状態を直接選択します。", "Available only in manual mode. Select the state directly.")}
+                      {tr("状態を直接選択します。クリック時に対応する状態設定も送信します。", "Select a state directly. Clicking also sends the matching state configuration.")}
                     </p>
                     <div className="planner-state-buttons">
                       {plannerStateSequence.map((stateCode, index) => {
@@ -6046,7 +6046,6 @@ function App() {
                             key={`planner-state-${stateCode}`}
                             className={`connection-button planner-choice-button planner-state-choice ${isSelected ? "planner-choice-selected" : ""} ${isSelected ? "btn-send" : "btn-connect"}`}
                             onClick={() => publishPlannerState(stateCode)}
-                            disabled={plannerTransitionModeCode === 1}
                           >
                             {index + 1}. {label}
                           </button>
