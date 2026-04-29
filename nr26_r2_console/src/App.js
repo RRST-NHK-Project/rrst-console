@@ -238,7 +238,7 @@ const createPlannerStateModeConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) 
     stateCodes.map((stateCode) => [
       stateCode,
       {
-        enabled: false,
+        enabled: true,
         modeCode: stateCode === 1 ? 4 : 3,
         rotateOnly: false,
       },
@@ -1630,8 +1630,9 @@ function App() {
       const fallback = defaultModeConfig[code];
       const raw = importedMode[String(code)] ?? importedMode[code] ?? {};
       const modeCode = Number(raw?.modeCode);
+      const enableBuiltInModeByDefault = importVersion < 3 && BUILTIN_PLANNER_STATE_CODES.includes(code);
       return [code, {
-        enabled: Boolean(raw?.enabled),
+        enabled: enableBuiltInModeByDefault ? fallback.enabled : Boolean(raw?.enabled),
         modeCode: Number.isFinite(modeCode) && modeCode >= 0 && modeCode <= 5 ? modeCode : fallback.modeCode,
       }];
     }));
@@ -1672,7 +1673,7 @@ function App() {
     const allStateCodes = [...plannerAllStateCodes];
     const exportData = {
       format: "nr26-planner-state-config",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
