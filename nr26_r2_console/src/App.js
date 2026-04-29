@@ -2197,97 +2197,54 @@ function App() {
   };
 
   const startCameraStream = () => {
-    const topicName = cameraTopicInput.trim();
-    if (!topicName) {
-      setCameraStreamInfo("トピック名を入力してください");
-      return;
-    }
-    if (!rosRef.current) {
-      setCameraStreamInfo("ROS未接続のため開始できません");
-      return;
-    }
-
-    stopCameraStream();
-    setCameraTopicName(topicName);
-
-    const cameraTopic = new ROSLIB.Topic({
-      ros: rosRef.current,
-      name: topicName,
-      messageType: "sensor_msgs/Image",
+    startRosImageStream({
+      topicName: cameraTopicInput.trim(),
+      stopStream: stopCameraStream,
+      subRef: cameraSubRef,
+      setTopicName: setCameraTopicName,
+      setInfo: setCameraStreamInfo,
+      setFrameMeta: setCameraFrameMeta,
+      setFrameUrl: setCameraFrameUrl,
+      setRunning: setCameraStreamRunning,
     });
-
-    let frameCount = 0;
-    let lastFpsAt = performance.now();
-    let fps = 0;
-
-    cameraTopic.subscribe((msg) => {
-      const converted = toImageDataFromRosImage(msg);
-      if (!converted) {
-        setCameraStreamInfo("画像データのデコードに失敗しました");
-        return;
-      }
-
-      if (!converted.imageData) {
-        setCameraFrameMeta((prev) => ({
-          ...prev,
-          width: converted.width,
-          height: converted.height,
-          encoding: converted.encoding,
-        }));
-        setCameraStreamInfo(`未対応エンコーディング: ${converted.encoding || "unknown"}`);
-        return;
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = converted.width;
-      canvas.height = converted.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        setCameraStreamInfo("Canvas初期化に失敗しました");
-        return;
-      }
-
-      ctx.putImageData(converted.imageData, 0, 0);
-      const url = canvas.toDataURL("image/png");
-      setCameraFrameUrl(url);
-
-      frameCount += 1;
-      const now = performance.now();
-      if (now - lastFpsAt >= 1000) {
-        fps = Math.round((frameCount * 1000) / (now - lastFpsAt));
-        frameCount = 0;
-        lastFpsAt = now;
-      }
-
-      setCameraFrameMeta({
-        width: converted.width,
-        height: converted.height,
-        encoding: converted.encoding,
-        fps,
-      });
-      setCameraStreamInfo("ストリーミング中");
-    });
-
-    cameraSubRef.current = cameraTopic;
-    setCameraStreamRunning(true);
-    setCameraStreamInfo(`購読開始: ${topicName}`);
   };
 
   const startCubeDebugStream = () => {
-    const topicName = cubeDebugTopicInput.trim();
+    startRosImageStream({
+      topicName: cubeDebugTopicInput.trim(),
+      stopStream: stopCubeDebugStream,
+      subRef: cubeDebugSubRef,
+      setTopicName: setCubeDebugTopicName,
+      setInfo: setCubeDebugStreamInfo,
+      setFrameMeta: setCubeFrameMeta,
+      setFrameUrl: setCubeFrameUrl,
+      setRunning: setCubeDebugStreamRunning,
+    });
+  };
+
+  const startRosImageStream = ({
+    topicName,
+    stopStream,
+    subRef,
+    setTopicName,
+    setInfo,
+    setFrameMeta,
+    setFrameUrl,
+    setRunning,
+  }) => {
     if (!topicName) {
-      setCubeDebugStreamInfo("トピック名を入力してください");
+      setInfo("トピック名を入力してください");
       return;
     }
     if (!rosRef.current) {
-      setCubeDebugStreamInfo("ROS未接続のため開始できません");
+      setInfo("ROS未接続のため開始できません");
       return;
     }
 
-    stopCubeDebugStream();
-    setCubeDebugTopicName(topicName);
+    stopStream();
+    setTopicName(topicName);
 
-    const cubeTopic = new ROSLIB.Topic({
+    const imageTopic = new ROSLIB.Topic({
       ros: rosRef.current,
       name: topicName,
       messageType: "sensor_msgs/Image",
@@ -2296,36 +2253,41 @@ function App() {
     let frameCount = 0;
     let lastFpsAt = performance.now();
     let fps = 0;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
 
-    cubeTopic.subscribe((msg) => {
+    if (!ctx) {
+      setInfo("Canvas初期化に失敗しました");
+      return;
+    }
+
+    imageTopic.subscribe((msg) => {
       const converted = toImageDataFromRosImage(msg);
       if (!converted) {
-        setCubeDebugStreamInfo("画像データのデコードに失敗しました");
+        setInfo("画像データのデコードに失敗しました");
         return;
       }
 
       if (!converted.imageData) {
-        setCubeFrameMeta((prev) => ({
+        setFrameMeta((prev) => ({
           ...prev,
           width: converted.width,
           height: converted.height,
           encoding: converted.encoding,
         }));
-        setCubeDebugStreamInfo(`未対応エンコーディング: ${converted.encoding || "unknown"}`);
+        setInfo(`未対応エンコーディング: ${converted.encoding || "unknown"}`);
         return;
       }
 
-      const canvas = document.createElement("canvas");
-      canvas.width = converted.width;
-      canvas.height = converted.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        setCubeDebugStreamInfo("Canvas初期化に失敗しました");
-        return;
+      if (canvas.width !== converted.width) {
+        canvas.width = converted.width;
+      }
+      if (canvas.height !== converted.height) {
+        canvas.height = converted.height;
       }
 
       ctx.putImageData(converted.imageData, 0, 0);
-      setCubeFrameUrl(canvas.toDataURL("image/png"));
+      setFrameUrl(canvas.toDataURL("image/png"));
 
       frameCount += 1;
       const now = performance.now();
@@ -2335,18 +2297,18 @@ function App() {
         lastFpsAt = now;
       }
 
-      setCubeFrameMeta({
+      setFrameMeta({
         width: converted.width,
         height: converted.height,
         encoding: converted.encoding,
         fps,
       });
-      setCubeDebugStreamInfo("ストリーミング中");
+      setInfo("ストリーミング中");
     });
 
-    cubeDebugSubRef.current = cubeTopic;
-    setCubeDebugStreamRunning(true);
-    setCubeDebugStreamInfo(`購読開始: ${topicName}`);
+    subRef.current = imageTopic;
+    setRunning(true);
+    setInfo(`購読開始: ${topicName}`);
   };
 
   const extractSerialBridgeIds = (topics) => {
