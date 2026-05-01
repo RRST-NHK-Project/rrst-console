@@ -13,3 +13,8 @@ sudo apt-get upgrade -y
 sudo apt install npm -y
 sudo apt install ros-jazzy-rosbridge-server -y
 
+# コンソールの依存関係をインストール
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "${SCRIPT_DIR}/../nr26_r2_console"
+npm install
+

@@ -90,12 +90,6 @@ else
   echo "node コマンドが見つかりません。console backend を起動できません。"
 fi
 
-# node_modulesが存在しない場合はインストール
-if [ ! -d "node_modules" ]; then
-  echo "依存関係をインストール中..."
-  npm install
-fi
-
 # 開発サーバーを起動
 echo "=================================="
 echo "R2 Console を起動しています..."
