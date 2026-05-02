@@ -91,6 +91,72 @@ const PLANNER_MODE_LABELS = {
   1: { ja: "自動遷移", en: "Auto" },
 };
 
+const PLANNER_COLOR_BLUE = 0;
+const PLANNER_COLOR_RED = 1;
+
+const isKnownPlannerColor = (colorCode) =>
+  colorCode === PLANNER_COLOR_BLUE || colorCode === PLANNER_COLOR_RED;
+
+const getPlannerPoseColorKey = (colorCode) =>
+  colorCode === PLANNER_COLOR_RED ? "red" : "blue";
+
+const createPlannerPoseValueConfig = () => ({
+  enabled: false,
+  x: "0.0",
+  y: "0.0",
+  yaw: "0.0",
+  waitForAutoDriveComplete: false,
+});
+
+const clonePlannerPoseValueConfig = (raw) => ({
+  enabled: Boolean(raw?.enabled),
+  x: String(raw?.x ?? "0.0"),
+  y: String(raw?.y ?? "0.0"),
+  yaw: String(raw?.yaw ?? "0.0"),
+  waitForAutoDriveComplete: Boolean(raw?.waitForAutoDriveComplete),
+});
+
+const createPlannerStatePoseEntry = (raw = null) => {
+  const baseConfig = raw ? clonePlannerPoseValueConfig(raw) : createPlannerPoseValueConfig();
+  return {
+    blue: clonePlannerPoseValueConfig(baseConfig),
+    red: clonePlannerPoseValueConfig(baseConfig),
+  };
+};
+
+const normalizePlannerStatePoseEntry = (raw) => {
+  if (raw && (raw.blue || raw.red)) {
+    return {
+      blue: clonePlannerPoseValueConfig(raw.blue),
+      red: clonePlannerPoseValueConfig(raw.red),
+    };
+  }
+
+  return createPlannerStatePoseEntry(raw);
+};
+
+const getPlannerPoseConfigForColor = (rawStatePoseConfig, colorCode) => {
+  const poseEntry = normalizePlannerStatePoseEntry(rawStatePoseConfig);
+  return poseEntry[getPlannerPoseColorKey(colorCode)];
+};
+
+const normalizeImportedPlannerPoseValue = (raw, fallback, importVersion) => {
+  const x = Number(raw?.x);
+  const y = Number(raw?.y);
+  const yawRaw = Number(raw?.yaw);
+  const yaw = Number.isFinite(yawRaw) && importVersion < 2
+    ? yawRaw * 180 / Math.PI
+    : yawRaw;
+
+  return {
+    enabled: Boolean(raw?.enabled),
+    x: Number.isFinite(x) ? String(x) : fallback.x,
+    y: Number.isFinite(y) ? String(y) : fallback.y,
+    yaw: Number.isFinite(yaw) ? String(parseFloat(yaw.toFixed(2))) : fallback.yaw,
+    waitForAutoDriveComplete: Boolean(raw?.waitForAutoDriveComplete),
+  };
+};
+
 const PLANNER_DEBUG_SOURCES = [
   {
     key: "r2_planner",
@@ -223,13 +289,7 @@ const createPlannerStatePoseConfig = (stateCodes = BUILTIN_PLANNER_STATE_CODES) 
   Object.fromEntries(
     stateCodes.map((stateCode) => [
       stateCode,
-      {
-        enabled: false,
-        x: "0.0",
-        y: "0.0",
-        yaw: "0.0",
-        waitForAutoDriveComplete: false,
-      },
+      createPlannerStatePoseEntry(),
     ])
   );
 
@@ -1073,7 +1133,9 @@ function App() {
 
   const publishPlannerColor = (colorCode) => {
     if (!taskColorCommandRef.current) return;
-    taskColorCommandRef.current.publish({ data: Number(colorCode) });
+    const nextColorCode = Number(colorCode);
+    taskColorCommandRef.current.publish({ data: nextColorCode });
+    setPlannerColorCode(nextColorCode);
   };
 
   const publishPlannerCell = () => {
@@ -1125,10 +1187,12 @@ function App() {
     taskStateSequenceNameRef.current.publish({ data: publishNames.join(",") });
   };
 
-  const publishPlannerStatePose = (stateCode, overrideConfig = null) => {
+  const publishPlannerStatePose = (stateCode, overrideConfig = null, colorCode = plannerColorCode) => {
     if (!taskStatePoseRef.current) return;
-    const config = overrideConfig || plannerStatePoseConfig[stateCode];
-    if (!config) return;
+    if (!isKnownPlannerColor(colorCode)) return;
+
+    const statePoseConfig = overrideConfig || plannerStatePoseConfig[stateCode];
+    const config = getPlannerPoseConfigForColor(statePoseConfig, colorCode);
 
     const xValue = Number.parseFloat(config.x);
     const yValue = Number.parseFloat(config.y);
@@ -1147,9 +1211,10 @@ function App() {
     });
   };
 
-  const publishPlannerStatePoseAll = () => {
+  const publishPlannerStatePoseAll = (colorCode = plannerColorCode) => {
+    if (!isKnownPlannerColor(colorCode)) return;
     plannerStateSequence.forEach((stateCode) => {
-      publishPlannerStatePose(stateCode);
+      publishPlannerStatePose(stateCode, null, colorCode);
     });
   };
 
@@ -1206,7 +1271,7 @@ function App() {
   };
 
   const publishPlannerStateConfigAll = () => {
-    publishPlannerStatePoseAll();
+    publishPlannerStatePoseAll(plannerColorCode);
     publishPlannerStateModeAll();
     publishPlannerStateOdomResetAll();
     publishPlannerStateWaitAll();
@@ -1442,7 +1507,7 @@ function App() {
     setPlannerStateSequence((prev) => (prev.includes(code) ? prev : [...prev, code]));
     setPlannerStatePoseConfig((prev) => ({
       ...prev,
-      [code]: { enabled: false, x: "0.0", y: "0.0", yaw: "0.0" },
+      [code]: createPlannerStatePoseEntry(),
     }));
     setPlannerStateModeConfig((prev) => ({
       ...prev,
@@ -1612,19 +1677,17 @@ function App() {
     const nextPoseConfig = Object.fromEntries(validCodes.map((code) => {
       const fallback = defaultPoseConfig[code];
       const raw = importedPose[String(code)] ?? importedPose[code] ?? {};
-      const x = Number(raw?.x);
-      const y = Number(raw?.y);
-      const yawRaw = Number(raw?.yaw);
-      // v1ファイルはyawがradianで保存されていたため、degreeに変換する
-      const yaw = Number.isFinite(yawRaw) && importVersion < 2
-        ? yawRaw * 180 / Math.PI
-        : yawRaw;
+      if (raw && (raw.blue || raw.red)) {
+        return [code, {
+          blue: normalizeImportedPlannerPoseValue(raw.blue, fallback.blue, importVersion),
+          red: normalizeImportedPlannerPoseValue(raw.red, fallback.red, importVersion),
+        }];
+      }
+
+      const legacyPoseConfig = normalizeImportedPlannerPoseValue(raw, fallback.blue, importVersion);
       return [code, {
-        enabled: Boolean(raw?.enabled),
-        x: Number.isFinite(x) ? String(x) : fallback.x,
-        y: Number.isFinite(y) ? String(y) : fallback.y,
-        yaw: Number.isFinite(yaw) ? String(parseFloat(yaw.toFixed(2))) : fallback.yaw,
-        waitForAutoDriveComplete: Boolean(raw?.waitForAutoDriveComplete),
+        blue: legacyPoseConfig,
+        red: { ...legacyPoseConfig },
       }];
     }));
 
@@ -1675,7 +1738,7 @@ function App() {
     const allStateCodes = [...plannerAllStateCodes];
     const exportData = {
       format: "nr26-planner-state-config",
-      version: 3,
+      version: 4,
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
@@ -1691,19 +1754,24 @@ function App() {
       stateSequence: plannerStateSequence.map((code) => Number(code)),
       statePoseConfig: Object.fromEntries(
         allStateCodes.map((code) => {
-          const config = plannerStatePoseConfig[code] || createPlannerStatePoseConfig()[code] || {
-            enabled: false,
-            x: "0.0",
-            y: "0.0",
-            yaw: "0.0",
-            waitForAutoDriveComplete: false,
-          };
+          const config = normalizePlannerStatePoseEntry(
+            plannerStatePoseConfig[code] || createPlannerStatePoseConfig([code])[code]
+          );
           return [code, {
-            enabled: Boolean(config.enabled),
-            x: String(config.x ?? "0.0"),
-            y: String(config.y ?? "0.0"),
-            yaw: String(config.yaw ?? "0.0"),
-            waitForAutoDriveComplete: Boolean(config.waitForAutoDriveComplete),
+            blue: {
+              enabled: Boolean(config.blue.enabled),
+              x: String(config.blue.x ?? "0.0"),
+              y: String(config.blue.y ?? "0.0"),
+              yaw: String(config.blue.yaw ?? "0.0"),
+              waitForAutoDriveComplete: Boolean(config.blue.waitForAutoDriveComplete),
+            },
+            red: {
+              enabled: Boolean(config.red.enabled),
+              x: String(config.red.x ?? "0.0"),
+              y: String(config.red.y ?? "0.0"),
+              yaw: String(config.red.yaw ?? "0.0"),
+              waitForAutoDriveComplete: Boolean(config.red.waitForAutoDriveComplete),
+            },
           }];
         })
       ),
@@ -1769,7 +1837,7 @@ function App() {
     const allStateCodes = [...plannerAllStateCodes];
     const exportData = {
       format: "nr26-planner-state-config",
-      version: 2,
+      version: 4,
       exportedAt: new Date().toISOString(),
       customStates: plannerCustomStates.map((state) => ({
         code: Number(state.code),
@@ -1785,19 +1853,24 @@ function App() {
       stateSequence: plannerStateSequence.map((code) => Number(code)),
       statePoseConfig: Object.fromEntries(
         allStateCodes.map((code) => {
-          const config = plannerStatePoseConfig[code] || createPlannerStatePoseConfig()[code] || {
-            enabled: false,
-            x: "0.0",
-            y: "0.0",
-            yaw: "0.0",
-            waitForAutoDriveComplete: false,
-          };
+          const config = normalizePlannerStatePoseEntry(
+            plannerStatePoseConfig[code] || createPlannerStatePoseConfig([code])[code]
+          );
           return [code, {
-            enabled: Boolean(config.enabled),
-            x: String(config.x ?? "0.0"),
-            y: String(config.y ?? "0.0"),
-            yaw: String(config.yaw ?? "0.0"),
-            waitForAutoDriveComplete: Boolean(config.waitForAutoDriveComplete),
+            blue: {
+              enabled: Boolean(config.blue.enabled),
+              x: String(config.blue.x ?? "0.0"),
+              y: String(config.blue.y ?? "0.0"),
+              yaw: String(config.blue.yaw ?? "0.0"),
+              waitForAutoDriveComplete: Boolean(config.blue.waitForAutoDriveComplete),
+            },
+            red: {
+              enabled: Boolean(config.red.enabled),
+              x: String(config.red.x ?? "0.0"),
+              y: String(config.red.y ?? "0.0"),
+              yaw: String(config.red.yaw ?? "0.0"),
+              waitForAutoDriveComplete: Boolean(config.red.waitForAutoDriveComplete),
+            },
           }];
         })
       ),
@@ -1975,12 +2048,16 @@ function App() {
     loadUiLayoutSettingsFromBackend();
   }, [backendBaseUrl]);
 
-  const updatePlannerStatePose = (stateCode, key, value) => {
+  const updatePlannerStatePose = (stateCode, colorCode, key, value) => {
+    const poseColorKey = getPlannerPoseColorKey(colorCode);
     setPlannerStatePoseConfig((prev) => ({
       ...prev,
       [stateCode]: {
-        ...prev[stateCode],
-        [key]: value,
+        ...normalizePlannerStatePoseEntry(prev[stateCode]),
+        [poseColorKey]: {
+          ...getPlannerPoseConfigForColor(prev[stateCode], colorCode),
+          [key]: value,
+        },
       },
     }));
   };
@@ -3984,6 +4061,15 @@ function App() {
   useEffect(() => {
     plannerTransitionModeRef.current = plannerTransitionModeCode;
   }, [plannerTransitionModeCode]);
+
+  useEffect(() => {
+    if (!isKnownPlannerColor(plannerColorCode)) {
+      return;
+    }
+
+    publishPlannerStatePoseAll(plannerColorCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannerColorCode]);
 
   useEffect(() => {
     arucoTargetIdValueRef.current = Math.trunc(parseFloatSafe(arucoTargetIdInput, -1));
@@ -6362,8 +6448,8 @@ function App() {
                   </div>
                   <p className="connection-hint planner-state-config-hint">
                     {tr(
-                      "順序、状態ごとの目標座標、ドライブモード、オドメトリリセット、待機時間をここでまとめて設定します。",
-                      "Configure state order and per-state pose, drive mode, odometry reset, and wait time here."
+                      "順序、状態ごとの目標座標(赤コート/青コート別)、ドライブモード、オドメトリリセット、待機時間をここでまとめて設定します。",
+                      "Configure state order and per-state pose by court color, drive mode, odometry reset, and wait time here."
                     )}
                   </p>
 
@@ -6475,7 +6561,7 @@ function App() {
 
                   <div className="planner-state-config-list">
                     {plannerStateSequence.map((stateCode, index) => {
-                      const poseConfig = plannerStatePoseConfig[stateCode] || { enabled: false, x: "0.0", y: "0.0", yaw: "0.0", waitForAutoDriveComplete: false };
+                      const poseConfigEntry = normalizePlannerStatePoseEntry(plannerStatePoseConfig[stateCode]);
                       const modeConfig = plannerStateModeConfig[stateCode] || { enabled: false, modeCode: 3 };
                       const odomResetConfig = plannerStateOdomResetConfig[stateCode] || { enabled: false };
                       const waitConfig = plannerStateWaitConfig[stateCode] || { enabled: false, waitSec: "3.0" };
@@ -6483,6 +6569,18 @@ function App() {
                       const stateNameConfig = getPlannerStateNameConfig(stateCode);
                       const isDragged = draggedPlannerStateCode === stateCode;
                       const isDropTarget = plannerDropTargetCode === stateCode && draggedPlannerStateCode !== stateCode;
+                      const poseColorSections = [
+                        {
+                          colorCode: PLANNER_COLOR_BLUE,
+                          colorLabel: tr("青コート", "Blue Court"),
+                          poseConfig: poseConfigEntry.blue,
+                        },
+                        {
+                          colorCode: PLANNER_COLOR_RED,
+                          colorLabel: tr("赤コート", "Red Court"),
+                          poseConfig: poseConfigEntry.red,
+                        },
+                      ];
 
                       return (
                         <article
@@ -6537,67 +6635,101 @@ function App() {
                             <section className="planner-state-config-subcard">
                               <div className="planner-state-config-subheader">
                                 <h5>{tr("座標・姿勢", "Pose")}</h5>
-                                <button
-                                  className={`toggle-button ${poseConfig.enabled ? "toggle-on" : "toggle-off"}`}
-                                  onClick={() => updatePlannerStatePose(stateCode, "enabled", !poseConfig.enabled)}
-                                >
-                                  {poseConfig.enabled ? tr("指定中", "Enabled") : tr("未指定", "Unset")}
-                                </button>
                               </div>
-                              <div className="planner-state-config-fields">
-                                <label className="serial-packet-label">
-                                  X
-                                  <input
-                                    className="connection-input"
-                                    type="number"
-                                    step="0.01"
-                                    value={poseConfig.x}
-                                    onChange={(e) => updatePlannerStatePose(stateCode, "x", e.target.value)}
-                                  />
-                                </label>
-                                <label className="serial-packet-label">
-                                  Y
-                                  <input
-                                    className="connection-input"
-                                    type="number"
-                                    step="0.01"
-                                    value={poseConfig.y}
-                                    onChange={(e) => updatePlannerStatePose(stateCode, "y", e.target.value)}
-                                  />
-                                </label>
-                                <label className="serial-packet-label">
-                                  Yaw [°]
-                                  <input
-                                    className="connection-input"
-                                    type="number"
-                                    step="1"
-                                    value={poseConfig.yaw}
-                                    onChange={(e) => updatePlannerStatePose(stateCode, "yaw", e.target.value)}
-                                  />
-                                </label>
-                              </div>
-                              <div className="planner-state-rotate-only-option">
-                                <label className="serial-packet-label">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(poseConfig.waitForAutoDriveComplete)}
-                                    onChange={(e) => {
-                                      const nextChecked = e.target.checked;
-                                      const nextPoseConfig = {
-                                        ...poseConfig,
-                                        waitForAutoDriveComplete: nextChecked,
-                                      };
-                                      updatePlannerStatePose(stateCode, "waitForAutoDriveComplete", nextChecked);
-                                      publishPlannerStatePose(stateCode, nextPoseConfig);
-                                    }}
-                                  />
-                                  {tr("移動完了フラグ待機", "Wait for Move Complete Flag")}
-                                </label>
+                              <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+                                {poseColorSections.map(({ colorCode, colorLabel, poseConfig }) => {
+                                  const poseColorKey = getPlannerPoseColorKey(colorCode);
+                                  const isSelectedCourt = plannerColorCode === colorCode;
+
+                                  return (
+                                    <div
+                                      key={`planner-state-pose-${stateCode}-${poseColorKey}`}
+                                      style={{
+                                        border: `1px solid ${isSelectedCourt ? "#0b6" : "#d7dce3"}`,
+                                        borderRadius: 8,
+                                        padding: 10,
+                                        background: isSelectedCourt ? "rgba(0, 180, 120, 0.06)" : "rgba(255, 255, 255, 0.7)",
+                                      }}
+                                    >
+                                      <div className="planner-state-config-subheader" style={{ marginBottom: 8 }}>
+                                        <h5>
+                                          {colorLabel}
+                                          {isSelectedCourt ? ` ${tr("(現在選択中)", "(Active)")}` : ""}
+                                        </h5>
+                                        <button
+                                          className={`toggle-button ${poseConfig.enabled ? "toggle-on" : "toggle-off"}`}
+                                          onClick={() => updatePlannerStatePose(stateCode, colorCode, "enabled", !poseConfig.enabled)}
+                                        >
+                                          {poseConfig.enabled ? tr("指定中", "Enabled") : tr("未指定", "Unset")}
+                                        </button>
+                                      </div>
+                                      <div className="planner-state-config-fields">
+                                        <label className="serial-packet-label">
+                                          X
+                                          <input
+                                            className="connection-input"
+                                            type="number"
+                                            step="0.01"
+                                            value={poseConfig.x}
+                                            onChange={(e) => updatePlannerStatePose(stateCode, colorCode, "x", e.target.value)}
+                                          />
+                                        </label>
+                                        <label className="serial-packet-label">
+                                          Y
+                                          <input
+                                            className="connection-input"
+                                            type="number"
+                                            step="0.01"
+                                            value={poseConfig.y}
+                                            onChange={(e) => updatePlannerStatePose(stateCode, colorCode, "y", e.target.value)}
+                                          />
+                                        </label>
+                                        <label className="serial-packet-label">
+                                          Yaw [°]
+                                          <input
+                                            className="connection-input"
+                                            type="number"
+                                            step="1"
+                                            value={poseConfig.yaw}
+                                            onChange={(e) => updatePlannerStatePose(stateCode, colorCode, "yaw", e.target.value)}
+                                          />
+                                        </label>
+                                      </div>
+                                      <div className="planner-state-rotate-only-option">
+                                        <label className="serial-packet-label">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(poseConfig.waitForAutoDriveComplete)}
+                                            onChange={(e) => {
+                                              const nextChecked = e.target.checked;
+                                              const nextPoseConfigEntry = {
+                                                ...poseConfigEntry,
+                                                [poseColorKey]: {
+                                                  ...poseConfig,
+                                                  waitForAutoDriveComplete: nextChecked,
+                                                },
+                                              };
+                                              updatePlannerStatePose(stateCode, colorCode, "waitForAutoDriveComplete", nextChecked);
+                                              publishPlannerStatePose(stateCode, nextPoseConfigEntry, colorCode);
+                                            }}
+                                          />
+                                          {tr("移動完了フラグ待機", "Wait for Move Complete Flag")}
+                                        </label>
+                                      </div>
+                                      <button
+                                        className="connection-button btn-send planner-state-config-apply"
+                                        onClick={() => publishPlannerStatePose(stateCode, poseConfigEntry, colorCode)}
+                                      >
+                                        {tr(`${colorLabel}座標を送信`, `Send ${colorLabel}`)}
+                                      </button>
+                                    </div>
+                                  );
+                                })}
                               </div>
                               <p className="connection-hint">
                                 {tr(
-                                  "ONにすると、この状態の自動遷移は r2/autodrive_complete=true を受信するまで進みません。",
-                                  "When enabled, auto transition for this state waits until r2/autodrive_complete=true is received."
+                                  "コート色ごとに別の座標を保持します。現在選択中のコート色へ切り替えた時、その色の座標が自動で planner に再送されます。",
+                                  "Each court color keeps its own pose. When the selected court color changes, that color's pose is automatically resent to the planner."
                                 )}
                               </p>
                               <div className="planner-state-rotate-only-option">
@@ -6611,9 +6743,6 @@ function App() {
                                   {tr("回転のみ", "Rotation only")}
                                 </label>
                               </div>
-                              <button className="connection-button btn-send planner-state-config-apply" onClick={() => publishPlannerStatePose(stateCode)}>
-                                {tr("座標を送信", "Send Pose")}
-                              </button>
                             </section>
 
                             <section className="planner-state-config-subcard">
