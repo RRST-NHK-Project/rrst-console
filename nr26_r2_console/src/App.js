@@ -374,6 +374,7 @@ function App() {
   const virtualOdomTimerRef = useRef(null);
   const odomRef = useRef(null);
   const driveModeRef = useRef(null);
+  const plannerTransitionModeRef = useRef(0);
   const autoDriveCmdRef = useRef(null);
   const arucoCameraOffsetRef = useRef(null);
   const arucoTargetIdRef = useRef(null);
@@ -1090,6 +1091,7 @@ function App() {
     if (!taskTransitionModeRef.current) return;
     const nextMode = Number(modeCode);
     taskTransitionModeRef.current.publish({ data: nextMode });
+    plannerTransitionModeRef.current = nextMode;
     setPlannerTransitionModeCode(nextMode);
     console.info("[Planner] publish transition mode", nextMode);
   };
@@ -3980,6 +3982,10 @@ function App() {
   }, [controllerEnabled]);
 
   useEffect(() => {
+    plannerTransitionModeRef.current = plannerTransitionModeCode;
+  }, [plannerTransitionModeCode]);
+
+  useEffect(() => {
     arucoTargetIdValueRef.current = Math.trunc(parseFloatSafe(arucoTargetIdInput, -1));
   }, [arucoTargetIdInput]);
 
@@ -4429,6 +4435,10 @@ function App() {
     });
     mffStepCompleteSubRef.current.subscribe((msg) => {
       if (msg?.data !== 0 && taskMffPathAdvanceRef.current) {
+        if (plannerTransitionModeRef.current !== 1) {
+          console.log("[MFF] step_complete received in manual transition mode, skipping auto-advance.");
+          return;
+        }
         taskMffPathAdvanceRef.current.publish({ data: true });
         console.log("[MFF] step_complete received (", msg.data, "), auto-advancing MFF cell.");
       }
@@ -4465,7 +4475,9 @@ function App() {
         setPlannerCellInput(String(Number.isFinite(nextCell) ? nextCell : 0));
       }
       if (data.length >= 4) {
-        setPlannerTransitionModeCode(Number(data[3]) || 0);
+        const nextTransitionMode = Number(data[3]) || 0;
+        plannerTransitionModeRef.current = nextTransitionMode;
+        setPlannerTransitionModeCode(nextTransitionMode);
       }
     });
 
