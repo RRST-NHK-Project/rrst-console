@@ -1,0 +1,502 @@
+{
+  "format": "nr26-planner-state-config",
+  "version": 2,
+  "exportedAt": "2026-04-23T15:28:44.580Z",
+  "customStates": [
+    {
+      "code": 6,
+      "labelJa": "KFSハンド初期化",
+      "publishName": "KFS_HAND_INIT"
+    },
+    {
+      "code": 7,
+      "labelJa": "KFS回収待機",
+      "publishName": "KFS_PICK_WAITING"
+    },
+    {
+      "code": 8,
+      "labelJa": "上回収",
+      "publishName": "PICK_UP"
+    },
+    {
+      "code": 9,
+      "labelJa": "中回収",
+      "publishName": "PICK_MIDDLE"
+    },
+    {
+      "code": 10,
+      "labelJa": "下回収",
+      "publishName": "PICK_DOWN"
+    },
+    {
+      "code": 11,
+      "labelJa": "KFS保持",
+      "publishName": "KFS_HOLD"
+    },
+    {
+      "code": 12,
+      "labelJa": "KFS移動",
+      "publishName": "KFS_MOVE"
+    },
+    {
+      "code": 13,
+      "labelJa": "TTR中段シュート",
+      "publishName": "TTR_SHOOT_MIDDLE"
+    },
+    {
+      "code": 14,
+      "labelJa": "MFFモードトリガー",
+      "publishName": "MFF_MODE_TRIGGER"
+    },
+    {
+      "code": 15,
+      "labelJa": "KFS位置合わせ",
+      "publishName": "KFS_ALIGNMENT"
+    },
+    {
+      "code": 16,
+      "labelJa": "ヘッドハンド初期化",
+      "publishName": "HEAD_HAND_INIT"
+    },
+    {
+      "code": 17,
+      "labelJa": "ヘッドハンドピックアップ",
+      "publishName": "HEAD_HAND_PICK_UP_SETTING"
+    },
+    {
+      "code": 18,
+      "labelJa": "ヘッドハンド合体待機",
+      "publishName": "HEAD_HAND_GATTAI_WAITING"
+    },
+    {
+      "code": 19,
+      "labelJa": "ヘッドハンド合体組み立て",
+      "publishName": "HEAD_HAND_GATTAI_ASSEMBLY"
+    },
+    {
+      "code": 20,
+      "labelJa": "アリーナモードトリガー",
+      "publishName": "ARENA_MODE_TRIGGER"
+    },
+    {
+      "code": 21,
+      "labelJa": "アリーナ旋回",
+      "publishName": "ARENA_TURN"
+    },
+    {
+      "code": 22,
+      "labelJa": "アリーナラック位置移動",
+      "publishName": "ARENA_LACK"
+    }
+  ],
+  "stateNameOverrides": {},
+  "stateSequence": [
+    0,
+    4,
+    16,
+    17,
+    18,
+    19,
+    1,
+    14,
+    15,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    2,
+    20,
+    21,
+    22
+  ],
+  "statePoseConfig": {
+    "0": {
+      "enabled": true,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "1": {
+      "enabled": true,
+      "x": "2.057",
+      "y": "0.218",
+      "yaw": "-87.4",
+      "waitForAutoDriveComplete": true
+    },
+    "2": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "4": {
+      "enabled": true,
+      "x": "0.517",
+      "y": "-0.690",
+      "yaw": "0.7",
+      "waitForAutoDriveComplete": true
+    },
+    "6": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "7": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "8": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "9": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "10": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "11": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "12": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "13": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "14": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "15": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "16": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "17": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "18": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "19": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "20": {
+      "enabled": false,
+      "x": "0",
+      "y": "0",
+      "yaw": "0",
+      "waitForAutoDriveComplete": false
+    },
+    "21": {
+      "enabled": true,
+      "x": "1.785",
+      "y": "0.954",
+      "yaw": "-90.9",
+      "waitForAutoDriveComplete": true
+    },
+    "22": {
+      "enabled": true,
+      "x": "3.733",
+      "y": "1.028",
+      "yaw": "-90.4",
+      "waitForAutoDriveComplete": true
+    }
+  },
+  "stateModeConfig": {
+    "0": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "1": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "2": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "4": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "6": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "7": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "8": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "9": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "10": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "11": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "12": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "13": {
+      "enabled": false,
+      "modeCode": 1
+    },
+    "14": {
+      "enabled": true,
+      "modeCode": 4
+    },
+    "15": {
+      "enabled": true,
+      "modeCode": 4
+    },
+    "16": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "17": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "18": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "19": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "20": {
+      "enabled": true,
+      "modeCode": 5
+    },
+    "21": {
+      "enabled": true,
+      "modeCode": 1
+    },
+    "22": {
+      "enabled": true,
+      "modeCode": 1
+    }
+  },
+  "stateOdomResetConfig": {
+    "0": {
+      "enabled": true
+    },
+    "1": {
+      "enabled": false
+    },
+    "2": {
+      "enabled": false
+    },
+    "4": {
+      "enabled": false
+    },
+    "6": {
+      "enabled": false
+    },
+    "7": {
+      "enabled": false
+    },
+    "8": {
+      "enabled": false
+    },
+    "9": {
+      "enabled": false
+    },
+    "10": {
+      "enabled": false
+    },
+    "11": {
+      "enabled": false
+    },
+    "12": {
+      "enabled": false
+    },
+    "13": {
+      "enabled": false
+    },
+    "14": {
+      "enabled": true
+    },
+    "15": {
+      "enabled": false
+    },
+    "16": {
+      "enabled": false
+    },
+    "17": {
+      "enabled": false
+    },
+    "18": {
+      "enabled": false
+    },
+    "19": {
+      "enabled": false
+    },
+    "20": {
+      "enabled": false
+    },
+    "21": {
+      "enabled": false
+    },
+    "22": {
+      "enabled": false
+    }
+  },
+  "stateWaitConfig": {
+    "0": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "1": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "2": {
+      "enabled": true,
+      "waitSec": "3"
+    },
+    "4": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "6": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "7": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "8": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "9": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "10": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "11": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "12": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "13": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "14": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "15": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "16": {
+      "enabled": true,
+      "waitSec": "3"
+    },
+    "17": {
+      "enabled": true,
+      "waitSec": "3"
+    },
+    "18": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "19": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "20": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "21": {
+      "enabled": false,
+      "waitSec": "3"
+    },
+    "22": {
+      "enabled": false,
+      "waitSec": "3"
+    }
+  }
+}

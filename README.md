@@ -1,11 +1,12 @@
 # rrst-console
 
-NR26 向け Web コンソール群（R1 / R2）をまとめたディレクトリです。
+RRST 向け Web コンソール群をまとめたディレクトリです。
 
 ## ディレクトリ構成
 
 - `nr26_r1_console/`: NR26 R1 用コンソール（React + roslib）
 - `nr26_r2_console/`: NR26 R2 用コンソール（React + roslib）
+- `rrst_generic_console/`: r / theta / z / hand 機向け汎用コンソール（React + roslib）
 - `setup/`: 初期セットアップ用スクリプト
 
 ## 前提条件
@@ -58,6 +59,19 @@ cd ~/ros2_ws/src/rrst-console/nr26_r2_console
 - Console backend: `http://localhost:3031`
 - Frontend: `http://localhost:3000`
 
+## Generic Arm Console 起動
+
+```bash
+cd ~/ros2_ws/src/rrst-console/rrst_generic_console
+./start.sh
+```
+
+起動後:
+
+- ROS bridge: `ws://localhost:9090`
+- Console backend: `http://localhost:3031`
+- Frontend: `http://localhost:3000`
+
 ## ポート変更
 
 環境変数で変更できます。
@@ -80,6 +94,11 @@ cd ~/ros2_ws/src/rrst-console/nr26_r2_console
 ./start_docker.sh
 ```
 
+```bash
+cd ~/ros2_ws/src/rrst-console/rrst_generic_console
+./start_docker.sh
+```
+
 ## よくある確認ポイント
 
 - `ros2` が見つからない: ROS 2 の環境を source してから実行する
@@ -87,3 +106,4 @@ cd ~/ros2_ws/src/rrst-console/nr26_r2_console
 - 起動失敗時のログ:
   - R1: `/tmp/r1_console_rosbridge.log`, `/tmp/r1_console_backend.log`
   - R2: `/tmp/r2_console_rosbridge.log`, `/tmp/r2_console_backend.log`
+  - Generic: `/tmp/rrst_generic_console_rosbridge.log`, `/tmp/rrst_generic_console_backend.log`
