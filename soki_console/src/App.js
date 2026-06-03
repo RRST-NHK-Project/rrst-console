@@ -15,6 +15,7 @@ const PAGE_DEFINITIONS = [
     { key: "control", label: "座標制御" },
     { key: "automation", label: "自動化" },
     { key: "actuator", label: "アクチュエータ" },
+    { key: "esc", label: "ESC設定" },
     { key: "debug", label: "デバッグ" },
     { key: "settings", label: "設定" },
 ];
@@ -47,6 +48,9 @@ const TOPIC_FIELD_DEFINITIONS = [
     { key: "estopCommand", label: "非常停止指令" },
     { key: "motorDebugCommand", label: "デバッグ出力" },
     { key: "gripperCommand", label: "ハンド指令" },
+    { key: "escCtrlCommand", label: "ESC cmd" },
+    { key: "escCtrlParams", label: "ESC params" },
+    { key: "escSerialRx", label: "ESC serial rx" },
 ];
 
 const DEFAULT_TOPIC_CONFIG = {
@@ -63,6 +67,10 @@ const DEFAULT_TOPIC_CONFIG = {
     estopCommand: { name: "/soki/cmd/estop", type: "std_msgs/msg/Bool" },
     motorDebugCommand: { name: "/soki/cmd/motor_debug", type: "std_msgs/msg/Float32MultiArray" },
     gripperCommand: { name: "/soki/cmd/gripper", type: "std_msgs/msg/Float32MultiArray" },
+
+    escCtrlCommand: { name: "/esc_ctrl/cmd", type: "std_msgs/msg/Float32MultiArray" },
+    escCtrlParams: { name: "/esc_ctrl/cmd/params", type: "std_msgs/msg/Float32MultiArray" },
+    escSerialRx: { name: "/serial_rx_153", type: "std_msgs/msg/Int16MultiArray" },
 };
 
 const AXIS_DEFINITIONS = [
@@ -151,6 +159,21 @@ const createEmptyEncoderReady = () => ({
     wrist: false,
 });
 
+const createEmptyEscFeedback = () => ({
+    angleDeg: 0,
+    velocityRadS: 0,
+    target: 0,
+    mode: 0,
+    voltageLimitV: 0,
+    rpm: 0,
+    velocityLimitRadS: null,
+    currentLimitA: null,
+    velocityPid: null,
+    velocityOutputRamp: null,
+    velocityLpfTfS: null,
+    anglePGain: null,
+});
+
 const normalizeJointFeedback = (msg) => {
     const data = Array.isArray(msg?.data) ? msg.data : [];
     return {
@@ -190,6 +213,39 @@ const normalizeMotorFeedback = (msg) => {
         diffB: parseNumber(data[2]),
         wrist: parseNumber(data[3]),
         gripper: parseNumber(data[4]),
+    };
+};
+
+const normalizeEscSerialRx = (msg) => {
+    const data = Array.isArray(msg?.data) ? msg.data : [];
+
+    const mode = parseInteger(data[4]);
+    const angleDeg = parseInteger(data[1]) * 0.1;
+    const velocityRadS = parseInteger(data[2]) * 0.1;
+    const target = parseInteger(data[3]) * 0.1;
+    const voltageLimitV = parseInteger(data[5]) * 0.1;
+    const rpm = parseInteger(data[6]);
+
+    const hasTuningEcho = data.length >= 15;
+    return {
+        angleDeg,
+        velocityRadS,
+        target,
+        mode,
+        voltageLimitV,
+        rpm,
+        velocityLimitRadS: hasTuningEcho ? parseInteger(data[7]) * 0.1 : null,
+        currentLimitA: hasTuningEcho ? parseInteger(data[8]) * 0.1 : null,
+        velocityPid: hasTuningEcho
+            ? {
+                p: parseInteger(data[9]) * 0.001,
+                i: parseInteger(data[10]) * 0.001,
+                d: parseInteger(data[11]) * 0.001,
+            }
+            : null,
+        velocityOutputRamp: hasTuningEcho ? parseInteger(data[12]) : null,
+        velocityLpfTfS: hasTuningEcho ? parseInteger(data[13]) / 1000.0 : null,
+        anglePGain: hasTuningEcho ? parseInteger(data[14]) * 0.01 : null,
     };
 };
 
@@ -338,6 +394,7 @@ function App() {
         stateFeedback: "",
         faultFeedback: "",
         motionFeedback: "",
+        escSerialRx: "",
     });
 
     const [targetInputs, setTargetInputs] = useState({
@@ -359,6 +416,27 @@ function App() {
         wrist: "0",
         gripper: "0",
     });
+
+    const [escCommandInputs, setEscCommandInputs] = useState({
+        enable: "1",
+        mode: "0",
+        target: "0",
+        voltageLimit: "6.0",
+    });
+
+    const [escParamInputs, setEscParamInputs] = useState({
+        velocityLimit: "1500",
+        currentLimit: "10",
+        velP: "0.02",
+        velI: "0.0",
+        velD: "0.0",
+        velRamp: "1000",
+        velLpfTf: "0.02",
+        angleP: "8.0",
+    });
+
+    const [escFeedback, setEscFeedback] = useState(createEmptyEscFeedback());
+    const [escInfo, setEscInfo] = useState("未送信");
 
     const rosRef = useRef(null);
     const publishersRef = useRef({});
@@ -631,6 +709,51 @@ function App() {
         transitionState("ESTOP", "GUIから非常停止を実行", false);
     };
 
+    const sendEscCommand = () => {
+        const payload = [
+            parseNumber(escCommandInputs.enable) ? 1 : 0,
+            parseNumber(escCommandInputs.mode) ? 1 : 0,
+            parseNumber(escCommandInputs.target),
+            parseNumber(escCommandInputs.voltageLimit),
+        ];
+
+        publishMessage(
+            "escCtrlCommand",
+            { data: payload },
+            {
+                requireArm: true,
+                infoSetter: setEscInfo,
+                successText: "ESCコマンドを送信しました",
+                failureText: "ESCコマンドの送信に失敗しました",
+            }
+        );
+    };
+
+    const sendEscParams = () => {
+        const payload = [
+            parseNumber(escCommandInputs.voltageLimit),
+            parseNumber(escParamInputs.velocityLimit),
+            parseNumber(escParamInputs.currentLimit),
+            parseNumber(escParamInputs.velP),
+            parseNumber(escParamInputs.velI),
+            parseNumber(escParamInputs.velD),
+            parseNumber(escParamInputs.velRamp),
+            parseNumber(escParamInputs.velLpfTf),
+            parseNumber(escParamInputs.angleP),
+        ];
+
+        publishMessage(
+            "escCtrlParams",
+            { data: payload },
+            {
+                requireArm: true,
+                infoSetter: setEscInfo,
+                successText: "ESCパラメータを送信しました",
+                failureText: "ESCパラメータの送信に失敗しました",
+            }
+        );
+    };
+
     useEffect(() => {
         writeStoredJson(SETTINGS_STORAGE_KEY, {
             rosHost: rosHostInput,
@@ -727,7 +850,16 @@ function App() {
             setSettingsInfo(`接続中: ${rosUrl}`);
             appendLog("info", `ROS connected: ${rosUrl}`);
 
-            ["targetCommand", "stateCommand", "encoderInitCommand", "estopCommand", "motorDebugCommand", "gripperCommand"].forEach(registerPublisher);
+            [
+                "targetCommand",
+                "stateCommand",
+                "encoderInitCommand",
+                "estopCommand",
+                "motorDebugCommand",
+                "gripperCommand",
+                "escCtrlCommand",
+                "escCtrlParams",
+            ].forEach(registerPublisher);
 
             registerSubscription("jointFeedback", (msg) => {
                 const nextValue = normalizeJointFeedback(msg);
@@ -772,6 +904,11 @@ function App() {
             registerSubscription("motionFeedback", (msg) => {
                 setIsMoving(Boolean(msg?.data));
                 updateSnapshot("motionFeedback", msg);
+            });
+
+            registerSubscription("escSerialRx", (msg) => {
+                setEscFeedback(normalizeEscSerialRx(msg));
+                updateSnapshot("escSerialRx", msg);
             });
         });
 
@@ -1294,6 +1431,193 @@ function App() {
         </section>
     );
 
+    const renderEscPage = () => (
+        <section className="serial-packet-section planner-panel">
+            <h2 className="serial-packet-title">ESC設定</h2>
+            <p className="serial-packet-hint">
+                B-G431B-ESC1(SimpleFOC)の実行コマンドとゲイン/リミットを送信します。送信は操作ロック解除(ARMED)が必要です。
+            </p>
+
+            <div className="serial-packet-section soki-inner-card">
+                <h3 className="serial-packet-title">コマンド</h3>
+                <div className="serial-packet-grid">
+                    <label className="serial-item">
+                        <span className="serial-item-name">enable</span>
+                        <span className="serial-item-desc">0=stop, 1=run</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="1"
+                            value={escCommandInputs.enable}
+                            onChange={(event) => setEscCommandInputs((prev) => ({ ...prev, enable: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">mode</span>
+                        <span className="serial-item-desc">0=velocity, 1=angle</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="1"
+                            value={escCommandInputs.mode}
+                            onChange={(event) => setEscCommandInputs((prev) => ({ ...prev, mode: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">target</span>
+                        <span className="serial-item-desc">mode=0: rad/s, mode=1: deg</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escCommandInputs.target}
+                            onChange={(event) => setEscCommandInputs((prev) => ({ ...prev, target: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">voltage_limit</span>
+                        <span className="serial-item-desc">V</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escCommandInputs.voltageLimit}
+                            onChange={(event) => setEscCommandInputs((prev) => ({ ...prev, voltageLimit: event.target.value }))}
+                        />
+                    </label>
+                </div>
+
+                <div className="serial-packet-actions soki-action-grid">
+                    <button type="button" className="connection-button btn-send" onClick={sendEscCommand}>コマンド送信</button>
+                </div>
+            </div>
+
+            <div className="serial-packet-section soki-inner-card">
+                <h3 className="serial-packet-title">ゲイン/リミット</h3>
+                <div className="serial-packet-grid">
+                    <label className="serial-item">
+                        <span className="serial-item-name">velocity_limit</span>
+                        <span className="serial-item-desc">rad/s</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.velocityLimit}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, velocityLimit: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">current_limit</span>
+                        <span className="serial-item-desc">A</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.currentLimit}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, currentLimit: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">PID_velocity.P</span>
+                        <span className="serial-item-desc">P gain</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.velP}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, velP: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">PID_velocity.I</span>
+                        <span className="serial-item-desc">I gain</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.velI}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, velI: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">PID_velocity.D</span>
+                        <span className="serial-item-desc">D gain</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.velD}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, velD: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">PID_velocity.output_ramp</span>
+                        <span className="serial-item-desc">SimpleFOC</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.velRamp}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, velRamp: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">LPF_velocity.Tf</span>
+                        <span className="serial-item-desc">s</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.velLpfTf}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, velLpfTf: event.target.value }))}
+                        />
+                    </label>
+                    <label className="serial-item">
+                        <span className="serial-item-name">P_angle.P</span>
+                        <span className="serial-item-desc">angle P gain</span>
+                        <input
+                            className="connection-input"
+                            type="number"
+                            step="any"
+                            value={escParamInputs.angleP}
+                            onChange={(event) => setEscParamInputs((prev) => ({ ...prev, angleP: event.target.value }))}
+                        />
+                    </label>
+                </div>
+
+                <div className="serial-packet-actions soki-action-grid">
+                    <button type="button" className="connection-button btn-send" onClick={sendEscParams}>パラメータ送信</button>
+                </div>
+            </div>
+
+            <div className="serial-packet-section soki-inner-card">
+                <h3 className="serial-packet-title">フィードバック (serial_rx)</h3>
+                <div className="soki-kv-grid">
+                    <span>mode</span>
+                    <strong>{escFeedback.mode === 1 ? "angle" : "velocity"}</strong>
+                    <span>angle</span>
+                    <strong>{formatFixed(escFeedback.angleDeg, 1)} deg</strong>
+                    <span>velocity</span>
+                    <strong>{formatFixed(escFeedback.velocityRadS, 1)} rad/s</strong>
+                    <span>target</span>
+                    <strong>{formatFixed(escFeedback.target, 1)}</strong>
+                    <span>vlim</span>
+                    <strong>{formatFixed(escFeedback.voltageLimitV, 1)} V</strong>
+                    <span>rpm</span>
+                    <strong>{escFeedback.rpm}</strong>
+                    <span>params</span>
+                    <strong>{escInfo}</strong>
+                </div>
+
+                {escFeedback.velocityPid && (
+                    <p className="connection-hint">
+                        echo: vel_lim={escFeedback.velocityLimitRadS?.toFixed(1)} rad/s, cur_lim={escFeedback.currentLimitA?.toFixed(1)} A, velPID(P/I/D)={escFeedback.velocityPid.p.toFixed(3)}/{escFeedback.velocityPid.i.toFixed(3)}/{escFeedback.velocityPid.d.toFixed(3)}, ramp={escFeedback.velocityOutputRamp}, Tf={escFeedback.velocityLpfTfS?.toFixed(3)}s, angP={escFeedback.anglePGain?.toFixed(2)}
+                    </p>
+                )}
+            </div>
+        </section>
+    );
+
     const renderDebugPage = () => (
         <section className="serial-packet-section planner-panel">
             <h2 className="serial-packet-title">デバッグ</h2>
@@ -1455,6 +1779,7 @@ function App() {
                     {activePages.includes("control") && renderControlPage()}
                     {activePages.includes("automation") && renderAutomationPage()}
                     {activePages.includes("actuator") && renderActuatorPage()}
+                    {activePages.includes("esc") && renderEscPage()}
                     {activePages.includes("debug") && renderDebugPage()}
                     {activePages.includes("settings") && renderSettingsPage()}
                 </div>
