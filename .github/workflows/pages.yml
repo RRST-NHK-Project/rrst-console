@@ -1,0 +1,90 @@
+name: Deploy consoles to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: |
+            nr26_r1_console/package-lock.json
+            nr26_r2_console/package-lock.json
+            soki_console/package-lock.json
+
+      - name: Build nr26_r1_console
+        working-directory: nr26_r1_console
+        env:
+          PUBLIC_URL: /${{ github.event.repository.name }}/nr26_r1_console
+          CI: "false"
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build nr26_r2_console
+        working-directory: nr26_r2_console
+        env:
+          PUBLIC_URL: /${{ github.event.repository.name }}/nr26_r2_console
+          CI: "false"
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build soki_console
+        working-directory: soki_console
+        env:
+          PUBLIC_URL: /${{ github.event.repository.name }}/soki_console
+          CI: "false"
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble site
+        run: |
+          rm -rf dist
+          mkdir -p dist/nr26_r1_console dist/nr26_r2_console dist/soki_console
+          cp -a nr26_r1_console/build/. dist/nr26_r1_console/
+          cp -a nr26_r2_console/build/. dist/nr26_r2_console/
+          cp -a soki_console/build/. dist/soki_console/
+          cp -a pages/index.html dist/index.html
+          touch dist/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        name: Deploy
+        uses: actions/deploy-pages@v4

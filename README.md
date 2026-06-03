@@ -107,3 +107,15 @@ cd ~/ros2_ws/src/rrst-console/rrst_generic_console
   - R1: `/tmp/r1_console_rosbridge.log`, `/tmp/r1_console_backend.log`
   - R2: `/tmp/r2_console_rosbridge.log`, `/tmp/r2_console_backend.log`
   - Generic: `/tmp/rrst_generic_console_rosbridge.log`, `/tmp/rrst_generic_console_backend.log`
+
+## GitHub Pages で閲覧
+
+このリポジトリには GitHub Pages へデプロイする Workflow（`.github/workflows/pages.yml`）が含まれています。
+
+- トップ: `https://<owner>.github.io/<repo>/`
+- 各 console:
+  - `https://<owner>.github.io/<repo>/nr26_r1_console/`
+  - `https://<owner>.github.io/<repo>/nr26_r2_console/`
+  - `https://<owner>.github.io/<repo>/soki_console/`
+
+注意: GitHub Pages 上では `rosbridge_server` や console backend は起動していないため、UI は表示できても ROS 接続やバックエンド API は別途用意が必要です。
